@@ -1,0 +1,11 @@
+faster-whisper
+pyaudio
+groq
+python-dotenv
+requests
+rich
+pynput
+webrtcvad
+numpy
+scipy
+psutil

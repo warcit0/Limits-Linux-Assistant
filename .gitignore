@@ -1,0 +1,10 @@
+# Nunca subir a GitHub
+.env
+*.onnx
+*.onnx.json
+logs/
+__pycache__/
+*.pyc
+limits-env/
+*.wav
+*.mp3

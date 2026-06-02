@@ -1,0 +1,169 @@
+"""
+Limits LINUX — Punto de entrada principal
+Orquesta todos los módulos: STT → LLM → Executor → TTS
+
+Uso:
+    python main.py              # Modo normal (siempre escuchando con wake word)
+    python main.py --text       # Modo texto (sin micrófono, para testing)
+    python main.py --once       # Ejecuta un solo comando y sale
+"""
+
+import sys
+import signal
+import logging
+import argparse
+from pathlib import Path
+from rich.console import Console
+from rich.panel import Panel
+
+from config import Config
+from modules.llm import LLMEngine
+from modules.executor import CommandExecutor
+from modules.tts import TTSEngine
+
+console = Console()
+
+# ── Logging a archivo ─────────────────────────────────────────────────────────
+Path("logs").mkdir(exist_ok=True)
+logging.basicConfig(
+    filename="logs/limits.log",
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+log = logging.getLogger("limits")
+
+
+# ── Señales del sistema ───────────────────────────────────────────────────────
+_shutdown_requested = False
+
+def _handle_sigterm(signum, frame):
+    """Manejo de SIGTERM para shutdown graceful (e.g. systemd stop)."""
+    global _shutdown_requested
+    _shutdown_requested = True
+    console.print("\n[yellow]SIGTERM recibido. Cerrando Limits...[/yellow]")
+
+signal.signal(signal.SIGTERM, _handle_sigterm)
+
+
+# ── Funciones principales ─────────────────────────────────────────────────────
+
+def print_banner(config: Config):
+    console.print(Panel.fit(
+        "[bold cyan]🤖 Limits LINUX[/bold cyan]\n"
+        f"[dim]LLM: {config.OLLAMA_MODEL} (Ollama local)[/dim]\n"
+        f"[dim]STT: Whisper {config.WHISPER_MODEL} | TTS: piper[/dim]\n"
+        f"[dim]Wake word: '{config.WAKE_WORD}' — Di 'salir' para terminar[/dim]",
+        border_style="cyan",
+    ))
+
+
+def run_pipeline(user_input: str, llm: LLMEngine, executor: CommandExecutor, tts: TTSEngine):
+    """Ejecuta el pipeline completo: texto → LLM → ejecutar → voz."""
+    log.info(f"INPUT: {user_input}")
+    parsed = llm.process(user_input)
+    response_text = executor.execute(parsed)
+    log.info(f"RESPONSE: {response_text} | intent={parsed.get('intent')} confidence={parsed.get('confidence', 0):.2f}")
+    tts.speak(response_text)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Limits Linux — Asistente de voz")
+    parser.add_argument("--text", action="store_true", help="Modo texto (sin micrófono, ideal para testing)")
+    parser.add_argument("--once", action="store_true", help="Ejecutar un solo comando y salir")
+    args = parser.parse_args()
+
+    config = Config()
+    print_banner(config)
+    log.info("Limits iniciado.")
+
+    console.print("\n[bold]Iniciando módulos...[/bold]")
+    llm      = LLMEngine(config)
+    executor = CommandExecutor()
+    tts      = TTSEngine(
+        voice_model=config.PIPER_VOICE_MODEL,
+        voice_speed=config.VOICE_SPEED,
+        speaker=config.VOICE_SPEAKER
+    )
+
+    stt = None
+    if not args.text:
+        from modules.stt import STTEngine
+        stt = STTEngine(
+            model_size=config.WHISPER_MODEL,
+            language=config.LANGUAGE,
+            device=config.STT_DEVICE,
+        )
+
+    console.print("\n[bold green]✓ Limits listo.[/bold green]\n")
+    tts.speak("Limits listo. ¿En qué te puedo ayudar?")
+
+    global _shutdown_requested
+
+    try:
+        while not _shutdown_requested:
+            if args.text:
+                # ── Modo texto ─────────────────────────────────────────────
+                try:
+                    user_input = input("\n[Tú]: ").strip()
+                except EOFError:
+                    break
+
+                if not user_input:
+                    continue
+                if user_input.lower() in ("salir", "exit", "quit"):
+                    break
+
+            else:
+                # ── Modo voz ───────────────────────────────────────────────
+                user_input = stt.listen_and_transcribe()
+
+                if not user_input:
+                    continue
+
+                # Filtrar por wake word si está configurada
+                if config.WAKE_WORD:
+                    wake_words = [w.strip().lower() for w in config.WAKE_WORD.split(",")]
+                    # Añadir variaciones comunes si la palabra es "limits"
+                    if "limits" in wake_words:
+                        wake_words.extend(["límites", "limites"])
+                    
+                    found_wake = None
+                    user_input_lower = user_input.lower()
+                    for w in wake_words:
+                        if w in user_input_lower:
+                            found_wake = w
+                            break
+                    
+                    if not found_wake:
+                        continue
+
+                    # Extraer comando (remover la wake word y limpiar puntuación)
+                    user_input = user_input_lower.replace(found_wake, "", 1).strip()
+                    user_input = user_input.lstrip(" ,.¿?¡!").strip()
+
+                if not user_input:
+                    tts.speak("¿Sí?")
+                    user_input = stt.listen_and_transcribe()
+
+                # Salida por voz
+                if user_input and user_input.lower() in ("salir", "exit", "apagarte"):
+                    break
+
+            if user_input:
+                run_pipeline(user_input, llm, executor, tts)
+
+            if args.once:
+                break
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Interrumpido por el usuario.[/yellow]")
+    finally:
+        tts.speak("Hasta luego.")
+        log.info("Limits apagado.")
+        if stt:
+            stt.cleanup()
+
+
+if __name__ == "__main__":
+    main()
