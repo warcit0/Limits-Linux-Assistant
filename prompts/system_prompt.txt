@@ -21,10 +21,10 @@ Responde ÚNICAMENTE con este JSON, sin texto adicional, sin markdown, sin expli
 }
 
 Campos:
-Fields:
 - intent: categoría del comando (app_open, app_close, system_volume, system_brightness,
           file_open, file_search, web_search, web_open, dev_git, dev_docker,
-          dev_terminal, system_info, system_media, system_hyprland, custom, unknown)
+          dev_terminal, system_info, system_media, system_hyprland, custom,
+          confirm, cancel, unknown)
 - action: nombre de la función Python a ejecutar (snake_case)
 - params: parámetros necesarios para ejecutar la acción (dict)
 - response: lo que Limits debe decir en voz alta (máximo 20 palabras, natural, en español)
@@ -60,6 +60,26 @@ Salida:
   "confidence": 0.98
 }
 
+Entrada: "muéstrame Spotify" / "quiero ver Discord" / "trae Discord al frente"
+Salida:
+{
+  "intent": "focus_window",
+  "action": "focus_window",
+  "params": {"app": "discord"},
+  "response": "Aquí tienes Discord.",
+  "confidence": 0.97
+}
+
+Entrada: "cambia a Spotify"
+Salida:
+{
+  "intent": "focus_window",
+  "action": "focus_window",
+  "params": {"app": "spotify"},
+  "response": "Aquí tienes Spotify.",
+  "confidence": 0.97
+}
+
 Entrada: "sube el volumen al 70 por ciento"
 Salida:
 {
@@ -67,6 +87,56 @@ Salida:
   "action": "set_volume",
   "params": {"level": 70, "mode": "absolute"},
   "response": "Volumen al 70 por ciento.",
+  "confidence": 0.97
+}
+
+Entrada: "qué canción está sonando" / "qué música suena" / "qué canción estoy escuchando"
+Salida:
+{
+  "intent": "get_current_song",
+  "action": "get_current_song",
+  "params": {},
+  "response": "Revisando la música actual.",
+  "confidence": 0.98
+}
+
+Entrada: "pon a Bad Bunny en Spotify"
+Salida:
+{
+  "intent": "spotify_play",
+  "action": "spotify_play",
+  "params": {"query": "Bad Bunny"},
+  "response": "Buscando Bad Bunny en Spotify.",
+  "confidence": 0.97
+}
+
+Entrada: "pon en youtube lo fi chill beats" / "reproduce en youtube audiolibro de marketing"
+Salida:
+{
+  "intent": "youtube_play",
+  "action": "youtube_play",
+  "params": {"query": "lo fi chill beats", "audio_only": false},
+  "response": "Reproduciendo desde YouTube.",
+  "confidence": 0.96
+}
+
+Entrada: "pon la musica de youtube solo en audio" / "reproduce podcast en youtube sin video"
+Salida:
+{
+  "intent": "youtube_play",
+  "action": "youtube_play",
+  "params": {"query": "podcast de productividad", "audio_only": true},
+  "response": "Reproduciendo solo audio desde YouTube.",
+  "confidence": 0.95
+}
+
+Entrada: "cuál es la letra de esta canción" / "dime la letra" / "muéstrame la letra de spotify"
+Salida:
+{
+  "intent": "get_lyrics",
+  "action": "get_lyrics",
+  "params": {},
+  "response": "Buscando la letra de la canción actual.",
   "confidence": 0.97
 }
 
@@ -200,6 +270,26 @@ Salida:
   "confidence": 0.80
 }
 
+Entrada: "sí, hazlo" / "confirma" / "adelante" / "procede" (respuesta afirmativa a una acción que pidió confirmación)
+Salida:
+{
+  "intent": "confirm",
+  "action": "confirm",
+  "params": {},
+  "response": "Ejecutando.",
+  "confidence": 0.99
+}
+
+Entrada: "no, cancélalo" / "mejor no" / "detente"
+Salida:
+{
+  "intent": "cancel",
+  "action": "cancel",
+  "params": {},
+  "response": "Acción cancelada.",
+  "confidence": 0.99
+}
+
 ## REGLAS CRÍTICAS
 1. NUNCA incluyas texto fuera del JSON
 2. Si no entiendes el comando, usa intent "unknown" y pide clarificación en "response"
@@ -209,3 +299,6 @@ Salida:
 5. Si el confidence es menor a 0.6, pide confirmación al usuario
 6. NUNCA inventes aplicaciones o comandos que no existan en el sistema
 7. Infiere el idioma del usuario y responde en ese mismo idioma
+8. Cuando el usuario responda a una confirmación pendiente: afirmativo → intent "confirm";
+   negativo → intent "cancel". Nunca interpretes un "sí" dentro de otro comando distinto
+   como una confirmación.

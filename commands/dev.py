@@ -11,7 +11,9 @@ from rich.console import Console
 
 console = Console()
 
-# Allowlist de comandos de terminal seguros (sin parámetros destructivos)
+# Allowlist de comandos de terminal seguros (sin parámetros destructivos).
+# NOTA: sin "curl" (exfiltración de datos) ni "cat" (lectura de archivos
+# privados que se leerían en voz alta). El match exige límite de palabra.
 SAFE_COMMANDS = {
     "git status",
     "git log",
@@ -29,8 +31,6 @@ SAFE_COMMANDS = {
     "top",
     "htop",
     "ping",
-    "curl",
-    "cat",
     "echo",
     "whoami",
     "uname",
@@ -48,9 +48,13 @@ class DevCommands:
         Returns:
             Output del comando como string (primeras 5 líneas)
         """
-        # Verificar que el comando es seguro
+        # Verificar que el comando es seguro (límite de palabra: evita que
+        # "catalog..." matchee "ca...", o que "git statusx" matchee "git status")
         cmd_lower = command.strip().lower()
-        is_safe = any(cmd_lower.startswith(safe) for safe in SAFE_COMMANDS)
+        is_safe = any(
+            cmd_lower == safe or cmd_lower.startswith(safe + " ")
+            for safe in SAFE_COMMANDS
+        )
 
         if not is_safe:
             console.print(f"[red]⚠️  Comando bloqueado por seguridad: '{command}'[/red]")

@@ -30,7 +30,7 @@ class TTSEngine:
             console.print(f"[yellow]⚠️  Voz piper no encontrada: {self.voice_model}[/yellow]")
             console.print("[yellow]   Usando espeak-ng como fallback temporal.[/yellow]")
             console.print(
-                "[dim]   Para descargar la voz, ejecuta: limits-linux-setup.sh[/dim]"
+                "[dim]   Para descargar la voz, mira el Quick Start del README.[/dim]"
             )
         else:
             console.print("[green]✓ TTS listo[/green]")
@@ -73,9 +73,20 @@ class TTSEngine:
                 stderr=subprocess.DEVNULL,
             )
 
-            piper_proc.stdin.write(text.encode("utf-8"))
-            piper_proc.stdin.close()
+            try:
+                piper_proc.stdin.write(text.encode("utf-8"))
+                piper_proc.stdin.close()
+            except BrokenPipeError:
+                pass  # aplay murió antes de leer todo; se limpia abajo
+
             aplay_proc.wait()
+
+            # Reap del proceso piper para evitar zombies
+            try:
+                piper_proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                piper_proc.kill()
+                piper_proc.wait()
 
         except FileNotFoundError:
             console.print("[yellow]piper no encontrado, usando espeak-ng...[/yellow]")

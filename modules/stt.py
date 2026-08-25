@@ -144,7 +144,7 @@ class STTEngine:
             beam_size=5,
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=500),
-            initial_prompt="Luna, Firefox, Chromium, Spotify, Discord, Slack, Obsidian, Thunar, Steam, VS Code, Code, Neovim, Ghostty, Docker, GitHub, Linux, Arch, CachyOS",
+            initial_prompt="Limits, Firefox, Chromium, Spotify, Discord, Slack, Obsidian, Thunar, Steam, VS Code, Code, Neovim, Ghostty, Docker, GitHub, Linux, Arch, CachyOS",
         )
 
         text = " ".join([segment.text for segment in segments]).strip()

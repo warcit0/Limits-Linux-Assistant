@@ -1,6 +1,6 @@
-# 🎙️ Carmen — Guía de Inicio Rápido
+# 🎙️ Limits — Guía de Inicio Rápido
 
-Esta guía explica cómo iniciar el asistente de voz **Carmen** en sus tres modos de operación.
+Esta guía explica cómo iniciar el asistente de voz **Limits** en sus tres modos de operación.
 
 ---
 
@@ -24,7 +24,7 @@ Asegúrate también de tener tu archivo `.env` configurado con tu `GROQ_API_KEY`
 
 ## 🗣️ Modo 1 — Voz (Normal)
 
-Es el modo principal. Carmen escucha por el micrófono, espera que digas su nombre (la *wake word*) y ejecuta tu comando.
+Es el modo principal. Limits escucha por el micrófono, espera que digas su nombre (la *wake word*) y ejecuta tu comando.
 
 ```bash
 cd ~/Proyectos/Limits
@@ -33,9 +33,9 @@ cd ~/Proyectos/Limits
 
 **Flujo de uso:**
 1. Espera a ver `✓ Limits listo.` en la consola.
-2. Di tu wake word: **"Carmen"**
-3. Di tu comando: *"Carmen, abre Spotify"*, *"Carmen, busca en YouTube..."*
-4. Para apagar, di **"Carmen, salir"** o presiona `Ctrl + C`.
+2. Di tu wake word: **"Limits"**
+3. Di tu comando: *"Limits, abre Spotify"*, *"Limits, busca en YouTube..."*
+4. Para apagar, di **"Limits, salir"** o presiona `Ctrl + C`.
 
 ---
 
@@ -50,14 +50,14 @@ cd ~/Proyectos/Limits
 
 **Flujo de uso:**
 1. Aparecerá el prompt `[Tú]:` en la consola.
-2. Escribe tu comando directamente (sin necesidad de decir "Carmen").
+2. Escribe tu comando directamente (sin necesidad de decir "Limits").
 3. Para salir, escribe `salir` o presiona `Ctrl + C`.
 
 ---
 
 ## 🚀 Modo 3 — Inicio Automático con el Sistema (Systemd)
 
-Configura Carmen para que inicie automáticamente en segundo plano cada vez que inicias sesión en tu CachyOS/Hyprland.
+Configura Limits para que inicie automáticamente en segundo plano cada vez que inicias sesión en tu CachyOS/Hyprland.
 
 ### Instalar el servicio (solo una vez)
 

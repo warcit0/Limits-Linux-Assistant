@@ -20,6 +20,7 @@ from config import Config
 from modules.llm import LLMEngine
 from modules.executor import CommandExecutor
 from modules.tts import TTSEngine
+from version import __version__, STATUS
 
 console = Console()
 
@@ -50,7 +51,7 @@ signal.signal(signal.SIGTERM, _handle_sigterm)
 
 def print_banner(config: Config):
     console.print(Panel.fit(
-        "[bold cyan]🤖 Limits LINUX[/bold cyan]\n"
+        f"[bold cyan]🤖 Limits LINUX[/bold cyan] [dim]{__version__} ({STATUS})[/dim]\n"
         f"[dim]LLM: {config.OLLAMA_MODEL} (Ollama local)[/dim]\n"
         f"[dim]STT: Whisper {config.WHISPER_MODEL} | TTS: piper[/dim]\n"
         f"[dim]Wake word: '{config.WAKE_WORD}' — Di 'salir' para terminar[/dim]",
@@ -60,10 +61,13 @@ def print_banner(config: Config):
 
 def run_pipeline(user_input: str, llm: LLMEngine, executor: CommandExecutor, tts: TTSEngine):
     """Ejecuta el pipeline completo: texto → LLM → ejecutar → voz."""
-    log.info(f"INPUT: {user_input}")
+    # PRIVACIDAD: el contenido dictado va a DEBUG (no se persiste por defecto);
+    # en INFO solo quedan metadatos del turno.
+    log.debug(f"INPUT: {user_input}")
     parsed = llm.process(user_input)
     response_text = executor.execute(parsed)
-    log.info(f"RESPONSE: {response_text} | intent={parsed.get('intent')} confidence={parsed.get('confidence', 0):.2f}")
+    log.info(f"turno procesado | intent={parsed.get('intent')} confidence={parsed.get('confidence', 0):.2f}")
+    log.debug(f"RESPONSE: {response_text}")
     tts.speak(response_text)
 
 

@@ -34,6 +34,16 @@ class AppCommands:
         "obs":              ["obs"],
     }
 
+    # Nombres coloquiales → nombre real del proceso en el sistema
+    PROCESS_ALIASES = {
+        "vscode":             "code",
+        "vs code":            "code",
+        "visual studio code": "code",
+        "editor":             "code",
+        "terminal":           "ghostty",
+        "neovim":             "nvim",
+    }
+
     def open_app(self, app: str, args: list = None) -> None:
         """Abre una aplicación. args=None corrige el bug de mutable default."""
         args = args or []
@@ -52,17 +62,25 @@ class AppCommands:
     def close_app(self, app: str) -> None:
         """Termina procesos o apaga aplicaciones de forma segura."""
         app_lower = app.lower()
-        
+
         # Cierre seguro para Steam (evita corrupción de archivos)
         if app_lower == "steam":
             subprocess.run(["steam", "-shutdown"])
             console.print("[green]✓ Apagando Steam correctamente[/green]")
             return
-            
+
+        target = self.PROCESS_ALIASES.get(app_lower, app_lower)
         killed = False
         for proc in psutil.process_iter(["pid", "name"]):
             try:
-                if app_lower in proc.info["name"].lower():
+                name = (proc.info["name"] or "").lower()
+                # Match exacto o por prefijo con separador; evita falsos
+                # positivos como matar "qrcode-gen" al pedir cerrar "code"
+                if (
+                    name == target
+                    or name.startswith(target + "-")
+                    or name.startswith(target + ".")
+                ):
                     proc.terminate()
                     killed = True
             except (psutil.NoSuchProcess, psutil.AccessDenied):

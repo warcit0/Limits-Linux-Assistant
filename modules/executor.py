@@ -15,6 +15,7 @@ from commands.web import WebCommands
 from commands.dev import DevCommands
 from commands.files import FileCommands
 from commands.custom import CustomCommands
+from commands.media import MediaCommands
 
 console = Console()
 
@@ -27,6 +28,7 @@ class CommandExecutor:
         self.dev     = DevCommands()
         self.files   = FileCommands()
         self.custom  = CustomCommands()
+        self.media   = MediaCommands()
 
         # Mapeo action → handler
         self.action_map = {
@@ -45,6 +47,15 @@ class CommandExecutor:
             "take_screenshot":      self.system.screenshot,
             "media_control":        self.system.media_control,
             "hyprland_control":     self.system.hyprland_control,
+            "focus_window":         self.system.focus_window,
+            # Multimedia avanzado
+            "spotify_play":         self.media.spotify_play,
+            "youtube_play":         self.media.youtube_play,
+            "get_lyrics":           self.media.get_lyrics,
+            "get_current_song":     self.media.get_current_song,
+            "get_current_media":    self.media.get_current_song,  # alias
+            "get_song":             self.media.get_current_song,  # alias
+            "current_song":         self.media.get_current_song,  # alias
             # Web
             "web_search":           self.web.search,
             "open_url":             self.web.open_url,
@@ -52,7 +63,7 @@ class CommandExecutor:
             "run_terminal_command": self.dev.run_command,
             "git_status":           self.dev.git_status,
             "docker_status":        self.dev.docker_status,
-            "open_project":         lambda: self.dev.open_project(params.get("path", "~/Proyectos"), params.get("editor", "code")),
+            "open_project":         self.dev.open_project,
             # Archivos
             "search_file":          self.files.search_file,
             "open_file":            self.files.open_file,
@@ -77,31 +88,35 @@ class CommandExecutor:
         Maneja el flujo de confirmación con estado.
         Returns: Texto de respuesta para sintetizar en voz.
         """
+        # ── Cortafuegos de tipos: el LLM puede alucinar la estructura ─────────
         action     = parsed_result.get("action", "speak_error")
         params     = parsed_result.get("params", {})
         response   = parsed_result.get("response", "Hecho.")
-        confidence = parsed_result.get("confidence", 1.0)
-        requires_confirmation = params.pop("requires_confirmation", False)
+        try:
+            confidence = float(parsed_result.get("confidence", 1.0))
+        except (TypeError, ValueError):
+            confidence = 1.0
+        if not isinstance(params, dict):
+            params = {}
+        if not isinstance(response, str):
+            response = "Hecho."
+        requires_confirmation = bool(params.pop("requires_confirmation", False))
 
         # ── ¿Hay una confirmación pendiente? ──────────────────────────────────
         if self._pending_action is not None:
-            # El usuario acaba de responder. ¿Confirmó?
-            user_intent = action  # intent del nuevo turno
-            raw_response = parsed_result.get("response", "").lower()
+            pending = self._pending_action
+            self._pending_action = None
 
-            confirmed = user_intent in ("custom",) or any(
-                word in raw_response
-                for word in ("confirmar", "sí", "si", "yes", "adelante", "procede")
-            )
-
-            if confirmed:
-                pending = self._pending_action
-                self._pending_action = None
+            # Solo los intents dedicados (enseñados en el system prompt) deciden
+            if action == "confirm":
                 console.print("[green]✓ Confirmación recibida, ejecutando...[/green]")
                 return self._run(pending["action"], pending["params"], pending["response"])
-            else:
-                self._pending_action = None
+
+            if action == "cancel":
                 return "Acción cancelada."
+
+            # Cualquier otro comando cancela lo pendiente y se procesa normal
+            console.print("[yellow]Había una acción pendiente; se canceló.[/yellow]")
 
         # ── Confianza baja ────────────────────────────────────────────────────
         if confidence < 0.5:

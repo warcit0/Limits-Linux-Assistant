@@ -1,14 +1,15 @@
 """
 Módulo LLM — Motor de inteligencia artificial
-Soporta Ollama (local, principal) con fallback automático a Groq API (cloud, gratuita).
+Soporta Groq API (cloud, gratuita) como motor principal cuando hay API key,
+con fallback automático a Ollama (local) si Groq falla o no está configurada.
 
-Prioridad:
-  1. Ollama local (qwen2.5-coder:7b) → privado, sin costo, sin internet, sin límites
-  2. Groq API (llama-3.1-8b-instant) → fallback oficial si Ollama falla, muy rápido, gratis
+Prioridad real (ver LLMEngine.process):
+  1. Groq API (llama-3.1-8b-instant) → Modo Turbo: <1s de latencia, gratis
+  2. Ollama local (qwen2.5-coder:7b) → privado, sin costo, funciona offline
 
 Por qué este orden:
-  - Ollama garantiza privacidad y disponibilidad offline
-  - Groq es la API cloud más rápida del mercado en free tier (oficial)
+  - Groq es la API más rápida del mercado en free tier y da la mejor UX de voz
+  - Ollama garantiza privacidad total y disponibilidad sin internet
   - Ambas usan formato de mensajes compatible con OpenAI spec
 """
 
@@ -146,10 +147,15 @@ class LLMEngine:
         """
         console.print(f"[dim]Procesando: '{user_text}'[/dim]")
 
-        if self.groq_client:
-            result = self._query_groq(user_text) or self._query_ollama(user_text)
-        else:
+        # El JSON válido puede no ser un objeto (ej. lista/string): se trata como
+        # fallo y se pasa al siguiente motor.
+        result = self._query_groq(user_text) if self.groq_client else None
+        if not isinstance(result, dict):
+            if result is not None:
+                console.print("[yellow]Groq devolvió JSON no-objeto. Probando Ollama...[/yellow]")
             result = self._query_ollama(user_text)
+            if not isinstance(result, dict):
+                result = None
 
         if not result:
             return {
