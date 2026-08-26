@@ -63,12 +63,23 @@ Primera versión etiquetada. Estado: **unstable**.
   diseño y contrato en `docs/plan-elevenlabs-tts.md`.
 - Primera suite de tests automatizada (`tests/`): 23 casos de la capa de voz con
   HTTP/audio mockeados.
+- Gateway móvil (F1): WebSocket embebido (`modules/gateway.py`, opt-in
+  `GATEWAY_ENABLED`) que recibe texto de un cliente Android y lo alimenta al
+  pipeline compartido — mismo LLM router, executor y voz que la local. Token de
+  pairing autogenerado (chmod 600), protocolo JSON versionado, zeroconf para
+  descubrimiento y lock de turno global (`TurnGate` en `main.make_pipeline`)
+  que serializa voz local vs remota sin intercalar salidas.
+- Casting a TV (F2): `commands/tv.py` con `tv_cast` (lo que suena ahora vía
+  playerctl, búsqueda YouTube vía yt-dlp o URL directa), `tv_control`
+  (play/pause/stop/volumen) y `list_tvs`. Usables por voz en el PC Y por el
+  gateway. Archivos locales servidos por URLs firmadas con expiración del
+  endpoint `/media/`.
+- Tests del gateway/pipeline compartido (16) y de TV (13): servidor uvicorn real
+  en puerto efímero con clientes websocket; total 52 casos.
 
 ### Planned
-- Control remoto por voz desde Android ("modo Jarvis"): gateway WebSocket
-  embebido que reutiliza el pipeline completo, app cliente Kotlin/Compose con
-  wake word y orbe HUD, y casting a TV via pychromecast como comandos nativos.
-  Diseño en `docs/plan-control-remoto-android.md`.
+- App Android del control remoto (F3–F6): Kotlin/Compose, wake word, orbe HUD.
+  El lado servidor ya está listo y esperando.
 
 - Integración del cerebro conversacional Gemini Web — EN PAUSA mientras el CLI
   `gemdev` (hermes-web-clis) estabiliza. Diseño completo congelado en

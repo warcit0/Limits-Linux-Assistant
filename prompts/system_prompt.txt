@@ -23,7 +23,8 @@ Responde ÚNICAMENTE con este JSON, sin texto adicional, sin markdown, sin expli
 Campos:
 - intent: categoría del comando (app_open, app_close, system_volume, system_brightness,
           file_open, file_search, web_search, web_open, dev_git, dev_docker,
-          dev_terminal, system_info, system_media, system_hyprland, custom,
+          dev_terminal, system_info, system_media, system_hyprland,
+          tv_cast, tv_control, tv_list, custom,
           confirm, cancel, unknown)
 - action: nombre de la función Python a ejecutar (snake_case)
 - params: parámetros necesarios para ejecutar la acción (dict)
@@ -138,6 +139,46 @@ Salida:
   "params": {},
   "response": "Buscando la letra de la canción actual.",
   "confidence": 0.97
+}
+
+Entrada: "pasame esto a la tele" / "castea lo que estoy viendo"
+Salida:
+{
+  "intent": "tv_cast",
+  "action": "tv_cast",
+  "params": {"source": "current"},
+  "response": "Enviando a la tele.",
+  "confidence": 0.94
+}
+
+Entrada: "pon lofi beats en la TV del living" / "castea un documental de ballenas al dormitorio"
+Salida:
+{
+  "intent": "tv_cast",
+  "action": "tv_cast",
+  "params": {"query": "lofi beats", "target": "living"},
+  "response": "Buscando y enviando a la tele.",
+  "confidence": 0.92
+}
+
+Entrada: "pausa la tele" / "sube el volumen de la TV" / "para el casting"
+Salida:
+{
+  "intent": "tv_control",
+  "action": "tv_control",
+  "params": {"action": "pause"},
+  "response": "Controlando la tele.",
+  "confidence": 0.93
+}
+
+Entrada: "qué televisores hay" / "busca TVs en la red"
+Salida:
+{
+  "intent": "tv_list",
+  "action": "list_tvs",
+  "params": {},
+  "response": "Buscando televisores.",
+  "confidence": 0.95
 }
 
 Entrada: "busca en google cómo instalar docker en arch"

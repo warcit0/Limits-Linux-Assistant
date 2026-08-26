@@ -50,6 +50,7 @@ No hay suite de tests ni CI todavía (pendiente, ver CHANGELOG). Antes de cada c
 | `modules/stt.py` | PyAudio + webrtcvad (corte: 900ms silencio / máx 10s) + faster-whisper int8 |
 | `modules/tts.py` | piper-tts → pipe → aplay 22050Hz S16LE; fallback espeak-ng |
 | `modules/executor.py` | `action_map` action→handler, cortafuegos de tipos/params, flujo confirm/cancel con estado |
+| `modules/gateway.py` | Gateway WebSocket móvil (`GATEWAY_ENABLED`): token pairing, lock de turno vía pipeline compartido, media firmada para casting |
 | `modules/listener.py` | ⚠️ NO USADO — versión threaded futura del wake word |
 | `commands/apps.py` | Abrir/cerrar apps (`APP_MAP`, `PROCESS_ALIASES`) |
 | `commands/system.py` | Volumen/brillo/lock/info/shutdown/hyprland (`WINDOW_CLASS_MAP`) |
@@ -57,8 +58,10 @@ No hay suite de tests ni CI todavía (pendiente, ver CHANGELOG). Antes de cada c
 | `commands/dev.py` | Terminal con allowlist, git/docker status, abrir proyectos |
 | `commands/files.py` | fd/find, xdg-open, listar directorios |
 | `commands/media.py` | Spotify URI, YouTube mpv+yt-dlp, letras lyrics.ovh, canción actual |
+| `commands/tv.py` | Casting a Chromecast/Android TV: discover/list, cast (current/query), control |
 | `commands/custom.py` | Plantilla vacía para comandos del usuario |
 | `prompts/system_prompt.txt` | System prompt few-shot. `{username}` se sustituye desde env |
+| `tests/` | Suite unittest (voz, gateway/pipeline, TV) sin red ni hardware real |
 | `docs/` | Documentación de diseño de integraciones planificadas |
 | `setup-service.sh` | Instala `~/.config/systemd/user/limits.service` |
 
@@ -128,14 +131,16 @@ main.run_pipeline(user_input)
   Serán actions nuevas (`gemini_talk`/`gemini_research`) delegando en un
   `GeminiBridge` por subprocess.
 
-### Control remoto desde Android (planeado → diseño listo)
-- Diseño en `docs/plan-control-remoto-android.md`: gateway WebSocket embebido en
-  Limits (hilo, mismo proceso) que alimenta `run_pipeline` tal cual; app Android
-  en `clients/android/`; casting a TV como comandos nuevos (`commands/tv.py`)
-  aprovechables también por voz local.
-- Reglas duras cuando se implemente: el texto del móvil pasa por el MISMO router
-  LLM + executor (cero superficie nueva); token de pairing obligatorio; lock
-  global serializa turnos voz-local vs móvil (nunca intercalar salidas).
+### Control remoto desde Android (F1–F2 implementados, app pendiente)
+- Diseño en `docs/plan-control-remoto-android.md`. Implementado: gateway
+  WebSocket embebido en Limits (`modules/gateway.py`, opt-in `GATEWAY_ENABLED`)
+  que alimenta el pipeline compartido, y casting a TV como comandos nativos
+  (`commands/tv.py`, usables también por voz local).
+- Reglas duras (vigentes para la app Android cuando se construya): el texto del
+  móvil pasa por el MISMO router LLM + executor (cero superficie nueva); token
+  de pairing obligatorio (`~/.limits/gateway_token`, chmod 600); el lock de turno
+  vive en `main.make_pipeline` y serializa voz local vs móvil (nunca intercalar
+  salidas); archivos locales solo por URLs firmadas del gateway.
 
 ### Voz natural ElevenLabs (implementada)
 - Voz dual por economía de cuota: Piper para respuestas cortas del sistema,

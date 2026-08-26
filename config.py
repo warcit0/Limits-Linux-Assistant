@@ -35,3 +35,11 @@ class Config:
     ELEVENLABS_STABILITY: float   = float(os.getenv("ELEVENLABS_STABILITY", "0.5"))
     ELEVENLABS_SIMILARITY: float  = float(os.getenv("ELEVENLABS_SIMILARITY", "0.75"))
     ELEVENLABS_CACHE: bool        = _env_bool("ELEVENLABS_CACHE", "true")
+
+    # ── Gateway móvil (control remoto por voz desde Android; opt-in) ─────────
+    GATEWAY_ENABLED: bool         = _env_bool("GATEWAY_ENABLED")
+    GATEWAY_HOST: str             = os.getenv("GATEWAY_HOST", "0.0.0.0")
+    GATEWAY_PORT: int             = int(os.getenv("GATEWAY_PORT", "8765"))
+    GATEWAY_MDNS_NAME: str        = os.getenv("GATEWAY_MDNS_NAME", "Limits")
+    GATEWAY_SPEAK_LOCAL: bool     = _env_bool("GATEWAY_SPEAK_LOCAL", "true")
+    GATEWAY_TOKEN_PATH: str       = os.getenv("GATEWAY_TOKEN_PATH", "")

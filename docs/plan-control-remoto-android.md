@@ -1,6 +1,7 @@
 # Plan: Control remoto por voz desde Android ("modo Jarvis en casa")
 
-> Estado: **Diseño listo pendiente de aprobación e implementación**.
+> Estado: **EN CURSO — F1 (gateway) y F2 (casting TV) implementados y probados**
+> (52 tests + integración E2E). Pendiente: app Android (F3–F6).
 > Origen: adaptación del prompt "Asistente IA Personal Jarvis" (app Android +
 > servidor PC) a la arquitectura existente de Limits.
 > Principio rector: **no se rehace nada que Limits ya hace bien** — el teléfono es

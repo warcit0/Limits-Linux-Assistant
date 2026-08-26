@@ -9,3 +9,8 @@ webrtcvad==2.0.10
 numpy==2.4.6
 scipy==1.17.1
 psutil==7.2.2
+fastapi==0.141.1
+uvicorn==0.52.4
+websockets==17.0.1
+zeroconf==0.150.0
+pychromecast==14.0.10

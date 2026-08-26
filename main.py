@@ -21,6 +21,7 @@ from modules.llm import LLMEngine
 from modules.executor import CommandExecutor
 from modules.tts import TTSEngine, VoiceRouter
 from modules.tts_elevenlabs import ElevenLabsEngine
+from modules.gateway import RemoteBusy, TurnGate
 from version import __version__, STATUS
 
 console = Console()
@@ -67,16 +68,33 @@ def print_banner(config: Config):
     ))
 
 
-def run_pipeline(user_input: str, llm: LLMEngine, executor: CommandExecutor, tts: TTSEngine):
-    """Ejecuta el pipeline completo: texto → LLM → ejecutar → voz."""
-    # PRIVACIDAD: el contenido dictado va a DEBUG (no se persiste por defecto);
-    # en INFO solo quedan metadatos del turno.
-    log.debug(f"INPUT: {user_input}")
-    parsed = llm.process(user_input)
-    response_text = executor.execute(parsed)
-    log.info(f"turno procesado | intent={parsed.get('intent')} confidence={parsed.get('confidence', 0):.2f}")
-    log.debug(f"RESPONSE: {response_text}")
-    tts.speak(response_text)
+def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
+                  tts, gate: TurnGate):
+    """Pipeline compartido por voz local y gateway móvil.
+
+    El TurnGate serializa turnos: nunca se intercalan respuestas de voz ni
+    historial del LLM. wait_timeout=None espera indefinido (voz local);
+    el gateway pasa un timeout y recibe RemoteBusy si no hay turno libre.
+    """
+    def pipeline(user_input: str, wait_timeout: float | None = None,
+                 speak: bool = True) -> str:
+        if not gate.acquire(wait_timeout):
+            raise RemoteBusy()
+        try:
+            # PRIVACIDAD: lo dictado va a DEBUG (no se persiste por defecto);
+            # en INFO solo quedan metadatos del turno.
+            log.debug(f"INPUT: {user_input}")
+            parsed = llm.process(user_input)
+            response_text = executor.execute(parsed)
+            log.info(f"turno procesado | intent={parsed.get('intent')} "
+                     f"confidence={parsed.get('confidence', 0):.2f}")
+            log.debug(f"RESPONSE: {response_text}")
+            if speak:
+                tts.speak(response_text)
+            return response_text
+        finally:
+            gate.release()
+    return pipeline
 
 
 def main():
@@ -136,6 +154,30 @@ def main():
             device=config.STT_DEVICE,
         )
 
+    # ── Pipeline compartido (voz local + gateway móvil) ──────────────────────
+    gate = TurnGate()
+    pipeline = make_pipeline(llm, executor, tts, gate)
+
+    # ── Gateway móvil: el texto remoto entra al MISMO pipeline (opt-in) ─────
+    gateway = None
+    if config.GATEWAY_ENABLED:
+        from modules.gateway import GatewayServer
+        gateway = GatewayServer(
+            pipeline=pipeline,
+            host=config.GATEWAY_HOST,
+            port=config.GATEWAY_PORT,
+            mdns_name=config.GATEWAY_MDNS_NAME,
+            token_path=config.GATEWAY_TOKEN_PATH or None,
+            app_version=__version__,
+            speak_remote=config.GATEWAY_SPEAK_LOCAL,
+        )
+        gw_info = gateway.start()
+        console.print(f"[green]✓ Gateway móvil:[/green] "
+                      f"ws://{gw_info['ip']}:{gw_info['port']}/ws "
+                      f"[dim](token: {config.GATEWAY_TOKEN_PATH or '~/.limits/gateway_token'})[/dim]")
+        # Los archivos locales a castear salen por URLs firmadas del gateway
+        executor.tv.media_url_factory = gateway.make_media_url
+
     console.print("\n[bold green]✓ Limits listo.[/bold green]\n")
     tts.speak("Limits listo. ¿En qué te puedo ayudar?")
 
@@ -192,7 +234,7 @@ def main():
                     break
 
             if user_input:
-                run_pipeline(user_input, llm, executor, tts)
+                pipeline(user_input)
 
             if args.once:
                 break
@@ -200,6 +242,8 @@ def main():
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrumpido por el usuario.[/yellow]")
     finally:
+        if gateway:
+            gateway.stop()
         tts.speak("Hasta luego.")
         log.info("Limits apagado.")
         if stt:

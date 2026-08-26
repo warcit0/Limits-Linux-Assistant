@@ -16,6 +16,7 @@ from commands.dev import DevCommands
 from commands.files import FileCommands
 from commands.custom import CustomCommands
 from commands.media import MediaCommands
+from commands.tv import TVCommands
 
 console = Console()
 
@@ -29,6 +30,7 @@ class CommandExecutor:
         self.files   = FileCommands()
         self.custom  = CustomCommands()
         self.media   = MediaCommands()
+        self.tv      = TVCommands()
 
         # Mapeo action → handler
         self.action_map = {
@@ -56,6 +58,10 @@ class CommandExecutor:
             "get_current_media":    self.media.get_current_song,  # alias
             "get_song":             self.media.get_current_song,  # alias
             "current_song":         self.media.get_current_song,  # alias
+            # TV / casting
+            "tv_cast":              self.tv.tv_cast,
+            "tv_control":           self.tv.tv_control,
+            "list_tvs":             self.tv.list_tvs,
             # Web
             "web_search":           self.web.search,
             "open_url":             self.web.open_url,
