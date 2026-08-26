@@ -8,6 +8,7 @@ Uso:
     python main.py --once       # Ejecuta un solo comando y sale
 """
 
+import os
 import sys
 import signal
 import logging
@@ -71,20 +72,38 @@ def print_banner(config: Config):
 
 
 def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
-                  tts, gate: TurnGate):
+                  tts, gate: TurnGate, gemini=None):
     """Pipeline compartido por voz local y gateway móvil.
 
     El TurnGate serializa turnos: nunca se intercalan respuestas de voz ni
     historial del LLM. wait_timeout=None espera indefinido (voz local);
     el gateway pasa un timeout y recibe RemoteBusy si no hay turno libre.
+
+    Router por palabras clave (decisión 2026-08-25): "investiga/infórmame/
+    busca en internet…" van DIRECTO a Gemini sin pasar por el LLM de intents.
     """
     def pipeline(user_input: str, wait_timeout: float | None = None,
                  speak: bool = True) -> str:
         if not gate.acquire(wait_timeout):
             raise RemoteBusy()
         try:
-            # PRIVACIDAD: lo dictado va a DEBUG (no se persiste por defecto);
-            # en INFO solo quedan metadatos del turno.
+            # ── Ruta conversacional determinista ─────────────────────────────
+            if gemini is not None:
+                from modules.gemini import match_gemini_route
+                route = match_gemini_route(user_input)
+                if route:
+                    mode = route[0]
+                    log.info("turno gemini (%s) vía palabra clave", mode)
+                    log.debug(f"INPUT(gemini): {user_input}")
+                    response_text = gemini.chat(
+                        user_input, research=(mode == "research"))
+                    log.info(f"turno gemini completado | chars={len(response_text)}")
+                    log.debug(f"RESPONSE(gemini): {response_text}")
+                    if speak:
+                        tts.speak(response_text)
+                    return response_text
+
+            # ── Ruta operativa (LLM router → executor) ───────────────────────
             log.debug(f"INPUT: {user_input}")
             parsed = llm.process(user_input)
             response_text = executor.execute(parsed)
@@ -158,7 +177,27 @@ def main():
 
     # ── Pipeline compartido (voz local + gateway móvil) ──────────────────────
     gate = TurnGate()
-    pipeline = make_pipeline(llm, executor, tts, gate)
+
+    # ── Cerebro conversacional Gemini (opt-in; salida solo a voz) ───────────
+    gemini_bridge = None
+    if config.GEMINI_ENABLED:
+        from modules.gemini import GeminiBridge
+        candidato = GeminiBridge(
+            gemini_bin=os.path.expanduser(config.GEMINI_BIN),
+            timeout_s=config.GEMINI_TIMEOUT,
+            session_file=(os.path.expanduser(config.GEMINI_SESSION)
+                          if config.GEMINI_SESSION else None),
+        )
+        if candidato.available():
+            gemini_bridge = candidato
+            executor.gemini = gemini_bridge
+            console.print(f"[green]✓ Cerebro conversacional Gemini listo[/green] "
+                          f"[dim](investiga/infórmame/… o gemini_talk)[/dim]")
+        else:
+            console.print(f"[yellow]GEMINI_BIN no encontrado: "
+                          f"{config.GEMINI_BIN} — cerebro desactivado[/yellow]")
+
+    pipeline = make_pipeline(llm, executor, tts, gate, gemini=gemini_bridge)
 
     # ── Gateway móvil: el texto remoto entra al MISMO pipeline (opt-in) ─────
     gateway = None

@@ -127,14 +127,19 @@ main.run_pipeline(user_input)
   los existentes.
 - `HISTORY_SIZE` (6) controla cuántos turnos se conservan Y se envían.
 
-### Integración Gemini conversacional (EN PAUSA)
-- **Decisión 2026-08-25:** pausada mientras el CLI `gemdev` de
-  `~/Work/hermes-web-clis` estabiliza (repo en desarrollo activo). El diseño
-  congelado vive en `docs/integracion-gemini.md`; NO implementarlo sin despausar.
-- Regla dura cuando se retome: la salida de Gemini va SOLO a TTS/log, jamás al
+### Integración Gemini conversacional (F1 implementada)
+- **Despausada 2026-08-25**: `modules/gemini.py` implementa el puente por
+  subprocess al CLI `gemdev` (ruta en `GEMINI_BIN`; repo actual del usuario:
+  `~/Work/WebAi-to-local-CLI-LLM`). Router determinista por palabras clave en
+  `make_pipeline`: "investiga/infórmame/googlea/busca en internet/novedades…"
+  → research; frases que empiezan por "gemini" o "pregúntale a gemini" → talk;
+  además intents `gemini_talk`/`gemini_research` enseñados en el prompt para
+  casos sin palabra clave. Memoria de conversación vía `-c GEMINI_SESSION`.
+- Regla dura VIGENTE: la salida de Gemini va SOLO a TTS/log, jamás al
   `action_map` ni al executor (bloquea prompt injection desde contenido web).
-  Serán actions nuevas (`gemini_talk`/`gemini_research`) delegando en un
-  `GeminiBridge` por subprocess.
+- Contrato verificado empíricamente: `chat -t N --json -c FILE` → puntero JSON
+  en última línea stdout, texto en archivo `f`. NUESTRO puente siempre pasa
+  `-t` (sin él su CLI crashea).
 
 ### Control remoto desde Android (F1–F2 implementados, app pendiente)
 - Diseño en `docs/plan-control-remoto-android.md`. Implementado: gateway

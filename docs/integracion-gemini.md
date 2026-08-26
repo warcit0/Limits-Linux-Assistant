@@ -1,11 +1,15 @@
 # Integración Gemini Web como cerebro conversacional de Limits
 
-> Estado: **EN PAUSA** — el CLI `gemdev` está en desarrollo activo e inestable
-> (decisión 2026-08-25): se evita integrar hasta que su API/DOM estabilice.
-> Este diseño queda congelado como referencia. Lo que SÍ avanza mientras tanto
-> (voz natural ElevenLabs + utilidades de voz compartidas) vive en
-> `docs/plan-elevenlabs-tts.md`, diseñado para no depender de este puente.
-> Repositorio fuente del puente: `~/Work/hermes-web-clis` (CLI `gemdev`).
+> Estado: **F1 IMPLEMENTADO** — puente `modules/gemini.py` operativo con router
+> por palabras clave ("investiga/infórmame/busca en internet…"/"gemini,…"),
+> intents `gemini_talk`/`gemini_research`, memoria de conversación y salida a
+> voz dual (Piper corto / ElevenLabs largo). Contrato verificado empíricamente
+> contra gemdev 0.2.x real (NO contra esta doc): `chat -t N --json -c FILE` →
+> puntero JSON en última línea stdout + texto en archivo `f`.
+> Nota upstream: `gemdev chat` sin `-t` explícito crashea (bug suyo); nuestro
+> puente siempre lo pasa.
+> Repositorio fuente del puente: hoy `~/Work/WebAi-to-local-CLI-LLM`
+> (antes hermes-web-clis; ruta configurable en `GEMINI_BIN`).
 > Este documento es la referencia obligatoria para cualquier agente/desarrollador que
 > implemente esta integración cuando se retome. Léelo junto a `AGENTS.md`.
 

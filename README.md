@@ -178,7 +178,7 @@ Guía técnica detallada (convenciones, seguridad, estructura interna) en [AGENT
 | Wake word dedicada (openWakeWord/Porcupine) | 📋 Roadmap |
 | Voz natural ElevenLabs para respuestas largas (Piper queda para lo operativo) | ✅ Implementado — [`docs/plan-elevenlabs-tts.md`](docs/plan-elevenlabs-tts.md) |
 | Control remoto por voz desde Android + casting a TV | 🚧 Servidor listo + app compilada — [`docs/plan-control-remoto-android.md`](docs/plan-control-remoto-android.md) |
-| Cerebro conversacional Gemini Web (charla + investigación) | ⏸ En pausa — [`docs/integracion-gemini.md`](docs/integracion-gemini.md) |
+| Cerebro conversacional Gemini Web (charla + investigación) | ✅ F1 activo con palabras clave — [`docs/integracion-gemini.md`](docs/integracion-gemini.md) |
 
 ## 📄 Licencia
 

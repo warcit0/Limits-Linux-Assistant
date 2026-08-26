@@ -22,6 +22,14 @@ class Config:
     LLM_PRIORITY: str      = os.getenv("LLM_PRIORITY", "cloud")
     OLLAMA_NUM_CTX: int    = int(os.getenv("OLLAMA_NUM_CTX", "2048"))
     OLLAMA_KEEP_ALIVE: str = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
+
+    # ── Cerebro conversacional Gemini (vía CLI gemdev) ───────────────────────
+    # Salida SOLO a voz/log (jamás al executor). Docs: integracion-gemini.md
+    GEMINI_ENABLED: bool   = _env_bool("GEMINI_ENABLED")
+    GEMINI_BIN: str        = os.getenv("GEMINI_BIN", "~/.local/bin/gemdev")
+    GEMINI_TIMEOUT: int    = int(os.getenv("GEMINI_TIMEOUT", "120"))
+    GEMINI_SESSION: str    = os.getenv("GEMINI_SESSION",
+                                       "~/.limits/gemini_session.json")
     WHISPER_MODEL: str     = os.getenv("WHISPER_MODEL", "small")
     LANGUAGE: str          = os.getenv("LANGUAGE", "es")
     STT_DEVICE: str        = os.getenv("STT_DEVICE", "cpu")

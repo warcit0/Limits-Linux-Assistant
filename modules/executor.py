@@ -31,6 +31,7 @@ class CommandExecutor:
         self.custom  = CustomCommands()
         self.media   = MediaCommands()
         self.tv      = TVCommands()
+        self.gemini  = None  # lo asigna main.py si GEMINI_ENABLED (GeminiBridge)
 
         # Mapeo action → handler
         self.action_map = {
@@ -62,6 +63,9 @@ class CommandExecutor:
             "tv_cast":              self.tv.tv_cast,
             "tv_control":           self.tv.tv_control,
             "list_tvs":             self.tv.list_tvs,
+            # Cerebro conversacional (salida solo a voz; jamás ejecuta nada)
+            "gemini_talk":          self._gemini_talk,
+            "gemini_research":      self._gemini_research,
             # Web
             "web_search":           self.web.search,
             "open_url":             self.web.open_url,
@@ -166,3 +170,16 @@ class CommandExecutor:
 
     def _noop(self, **kwargs) -> None:
         pass
+
+    # ── Cerebro conversacional ───────────────────────────────────────────────
+
+    def _gemini_talk(self, query: str) -> str:
+        return self._gemini(query, research=False)
+
+    def _gemini_research(self, query: str) -> str:
+        return self._gemini(query, research=True)
+
+    def _gemini(self, query: str, research: bool) -> str:
+        if not self.gemini:
+            return "El cerebro conversacional está desactivado."
+        return self.gemini.chat(query, research=research)
