@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# limits-service — controla el asistente de fondo (systemd user service)
+# Uso: limits-service [start|stop|restart|status|logs]
+case "${1:-status}" in
+    start)   systemctl --user start limits.service ;;
+    stop)    systemctl --user stop limits.service ;;
+    restart) systemctl --user restart limits.service ;;
+    status)  systemctl --user status limits.service ;;
+    logs)    journalctl --user -u limits.service -f ;;
+    *) echo "uso: limits-service [start|stop|restart|status|logs]"; exit 1 ;;
+esac

@@ -162,21 +162,26 @@ def main():
     gateway = None
     if config.GATEWAY_ENABLED:
         from modules.gateway import GatewayServer
-        gateway = GatewayServer(
-            pipeline=pipeline,
-            host=config.GATEWAY_HOST,
-            port=config.GATEWAY_PORT,
-            mdns_name=config.GATEWAY_MDNS_NAME,
-            token_path=config.GATEWAY_TOKEN_PATH or None,
-            app_version=__version__,
-            speak_remote=config.GATEWAY_SPEAK_LOCAL,
-        )
-        gw_info = gateway.start()
-        console.print(f"[green]✓ Gateway móvil:[/green] "
-                      f"ws://{gw_info['ip']}:{gw_info['port']}/ws "
-                      f"[dim](token: {config.GATEWAY_TOKEN_PATH or '~/.limits/gateway_token'})[/dim]")
-        # Los archivos locales a castear salen por URLs firmadas del gateway
-        executor.tv.media_url_factory = gateway.make_media_url
+        try:
+            gateway = GatewayServer(
+                pipeline=pipeline,
+                host=config.GATEWAY_HOST,
+                port=config.GATEWAY_PORT,
+                mdns_name=config.GATEWAY_MDNS_NAME,
+                token_path=config.GATEWAY_TOKEN_PATH or None,
+                app_version=__version__,
+                speak_remote=config.GATEWAY_SPEAK_LOCAL,
+            )
+            gw_info = gateway.start()
+            console.print(f"[green]✓ Gateway móvil:[/green] "
+                          f"ws://{gw_info['ip']}:{gw_info['port']}/ws "
+                          f"[dim](token: {config.GATEWAY_TOKEN_PATH or '~/.limits/gateway_token'})[/dim]")
+            # Los archivos locales a castear salen por URLs firmadas del gateway
+            executor.tv.media_url_factory = gateway.make_media_url
+        except OSError as e:
+            console.print(f"[yellow]Gateway no iniciado ({e}); "
+                          f"¿otra instancia ya usa el puerto {config.GATEWAY_PORT}?[/yellow]")
+            gateway = None
 
     console.print("\n[bold green]✓ Limits listo.[/bold green]\n")
     tts.speak("Limits listo. ¿En qué te puedo ayudar?")

@@ -18,7 +18,12 @@ Pipeline por turno: **STT local → LLM dual → Executor con cortafuegos → TT
 
 ```bash
 # Ejecutar en modo texto (no requiere micrófono — la forma principal de probar)
-./limits-env/bin/python main.py --text
+limits --text            # equivalente a ./limits-env/bin/python main.py --text
+
+# Lanzador global: bin/limits (symlink en ~/.local/bin). Flags: --text/--once/
+# --takeover (para el service de fondo automáticamente para evitar conflicto
+# de micrófono/puerto 8765). Control del servicio: limits-service start|stop|
+# restart|status|logs
 
 # Verificar sintaxis de todos los módulos (equivalente a lint mínimo actual)
 ./limits-env/bin/python -m py_compile main.py config.py version.py \

@@ -89,14 +89,20 @@ Como mínimo define `GROQ_API_KEY` (gratis en [console.groq.com](https://console
 
 ### 5. Ejecutar
 ```bash
+# Comando global (una sola vez: enlaza el lanzador)
+mkdir -p ~/.local/bin && ln -sf ~/Proyectos/Limits/bin/limits ~/.local/bin/limits
+
 # Modo normal (espera tu wake word)
-./limits-env/bin/python main.py
+limits
 
 # Modo texto (para probar sin micrófono)
-./limits-env/bin/python main.py --text
+limits --text
 
 # Ejecutar un solo turno y salir (voz o texto)
-./limits-env/bin/python main.py --once
+limits --once
+
+# Si limits.service está de fondo, toma el control:
+limits --takeover
 ```
 
 > [!TIP]
@@ -107,8 +113,9 @@ Para que Limits inicie en segundo plano automáticamente con tu sesión:
 ```bash
 chmod +x setup-service.sh
 ./setup-service.sh
-systemctl --user status limits.service
+limits-service status        # atajo de systemctl --user status limits.service
 ```
+Atajos disponibles: `limits-service start|stop|restart|status|logs`.
 
 ## ⚙️ Configuración (.env)
 

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# limits — lanza el asistente en primer plano desde cualquier directorio.
+# Uso: limits [--text] [--once]
+#   limits --takeover  → detiene el servicio de fondo automáticamente si está activo
+set -e
+
+REPO="$HOME/Proyectos/Limits"
+
+# Conflicto con el servicio de fondo: mismo micrófono y mismo puerto 8765
+if systemctl --user is-active --quiet limits.service; then
+    if [[ "$1" == "--takeover" ]]; then
+        shift
+        echo "⏸  Parando limits.service..."
+        systemctl --user stop limits.service
+        sleep 1
+    else
+        echo "⚠️  limits.service ya corre en segundo plano (wake word activa)."
+        echo "   Opciones:"
+        echo "     limits --takeover    # lo para y abre sesión interactiva"
+        echo "     systemctl --user stop limits.service"
+        exit 1
+    fi
+fi
+
+cd "$REPO"
+exec "$REPO/limits-env/bin/python" main.py "$@"

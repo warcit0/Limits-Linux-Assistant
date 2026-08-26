@@ -82,6 +82,15 @@ Primera versión etiquetada. Estado: **unstable**.
   Compila sin Android Studio (SDK cmdline-tools + Gradle); instrucciones en
   `clients/android/README.md`.
 
+- Comandos globales de shell: `limits` (lanzador con guard anti-conflicto contra
+  el servicio de fondo y flag `--takeover`) y `limits-service` (atajos systemd).
+  El gateway ahora degrada con gracia si el puerto 8765 está ocupado.
+- Fix de voz: `/usr/bin/piper` en Arch es el gestor de ratones, no el TTS —
+  resolución ordenada del binario real (venv primero); piper-tts pineado.
+- Fix de rendimiento: modelo Groq retirado (404 silencioso) causaba fallback a
+  Ollama local en CPU en cada turno (~20s). Ahora `GROQ_MODEL` configurable;
+  benchmarked qwen3.6-27b a ~1s.
+
 ### Planned
 - App Android del control remoto (F3–F6): Kotlin/Compose, wake word, orbe HUD.
   El lado servidor ya está listo y esperando.

@@ -28,7 +28,7 @@ Es el modo principal. Limits escucha por el micrófono, espera que digas su nomb
 
 ```bash
 cd ~/Proyectos/Limits
-./limits-env/bin/python main.py
+limits
 ```
 
 **Flujo de uso:**
@@ -45,7 +45,7 @@ cd ~/Proyectos/Limits
 
 ```bash
 cd ~/Proyectos/Limits
-./limits-env/bin/python main.py --text
+limits --text
 ```
 
 **Flujo de uso:**
