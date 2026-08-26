@@ -103,15 +103,21 @@ fun JarvisScreen() {
     // Endpoint resuelto: manual gana sobre descubrimiento mDNS
     var discovered by remember { mutableStateOf<Pair<String, Int>?>(null) }
 
-    // BUGFIX: sin multicast lock muchos móviles NUNCA ven los anuncios mDNS
+    // BUGFIX: sin multicast lock muchos móviles NUNCA ven los anuncios mDNS.
+    // Defensivo: cualquier rareza del vendor no debe tumbar la app (requiere
+    // CHANGE_WIFI_MULTICAST_STATE, ya en el manifest).
     val multicastLock = remember {
-        (context.applicationContext.getSystemService(Context.WIFI_SERVICE)
-                as WifiManager)
-            .createMulticastLock("limits_mdns")
-            .apply { setReferenceCounted(false); acquire() }
+        runCatching {
+            (context.applicationContext.getSystemService(Context.WIFI_SERVICE)
+                    as WifiManager)
+                .createMulticastLock("limits_mdns")
+                .apply { setReferenceCounted(false); acquire() }
+        }.getOrNull()
     }
     DisposableEffect(Unit) {
-        onDispose { if (multicastLock.isHeld) multicastLock.release() }
+        onDispose {
+            runCatching { if (multicastLock?.isHeld == true) multicastLock.release() }
+        }
     }
 
     val tokenMissing = settings.token.isBlank()
