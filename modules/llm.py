@@ -115,30 +115,69 @@ class LLMEngine:
             return None
 
     def _query_groq(self, user_text: str) -> dict | None:
-        """Consulta a Groq API como fallback (oficial, gratuita)."""
+        """Consulta a Groq API como fallback (oficial, gratuita).
+
+        Sin response_format: los modelos con thinking (qwen3/gpt-oss) fallan la
+        validación server-side cuando gastan tokens en <think>. Usamos
+        reasoning_format=hidden + extracción defensiva propia (ver
+        _extract_json), y un reintento único ante respuestas vacías/rotas.
+        """
         if not self.groq_client:
             console.print("[red]Error: Groq no disponible (falta API key o paquete groq).[/red]")
             return None
 
-        try:
-            response = self.groq_client.chat.completions.create(
-                model=self.config.GROQ_MODEL,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    *self.conversation_history,
-                    {"role": "user", "content": user_text},
-                ],
-                temperature=0.1,
-                max_tokens=300,
-                response_format={"type": "json_object"},
-            )
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            *self.conversation_history,
+            {"role": "user", "content": user_text},
+        ]
 
-            content = response.choices[0].message.content
-            return json.loads(content)
+        for attempt in (1, 2):
+            try:
+                response = self.groq_client.chat.completions.create(
+                    model=self.config.GROQ_MODEL,
+                    messages=messages,
+                    temperature=0.1,
+                    max_tokens=500,
+                    reasoning_format="hidden",
+                )
+                result = self._extract_json(response.choices[0].message.content or "")
+                if result is not None:
+                    return result
+                console.print(f"[yellow]Groq intento {attempt}: respuesta sin "
+                              f"JSON útil; reintentando...[/yellow]")
+            except Exception as e:
+                console.print(f"[yellow]Groq intento {attempt} falló: "
+                              f"{type(e).__name__}: {str(e)[:100]}[/yellow]")
 
-        except Exception as e:
-            console.print(f"[red]Groq también falló: {e}[/red]")
+        console.print("[red]Groq agotó sus intentos.[/red]")
+        return None
+
+    @staticmethod
+    def _extract_json(text: str) -> dict | None:
+        """Extrae un objeto JSON de una respuesta LLM imperfecta.
+
+        Tolera bloques <think> residuales, fences markdown y texto alrededor;
+        devuelve None si no hay JSON parseable."""
+        import re
+        if not text:
             return None
+        cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
+        cleaned = re.sub(r"^```[a-zA-Z]*\s*", "", cleaned.strip())
+        cleaned = re.sub(r"\s*```$", "", cleaned.strip()).strip()
+        try:
+            data = json.loads(cleaned)
+            return data if isinstance(data, dict) else None
+        except json.JSONDecodeError:
+            pass
+        m = re.search(r"\{.*\}", cleaned, flags=re.S)
+        if m:
+            try:
+                data = json.loads(m.group())
+                return data if isinstance(data, dict) else None
+            except json.JSONDecodeError:
+                return None
+        return None
 
     def process(self, user_text: str) -> dict:
         """
