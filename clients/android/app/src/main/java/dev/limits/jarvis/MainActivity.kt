@@ -197,14 +197,15 @@ fun JarvisScreen() {
                 Orb(processing = processing, connected = state is ConnState.Connected)
             }
 
+            val st = state  // smart cast imposible en propiedades delegadas
             val statusText = when {
                 tokenMissing -> "⚙ Toca el engranaje y pega el token del PC"
                 processing -> "Procesando…"
-                state is ConnState.Connected -> "Escuchando…"
-                state is ConnState.Connecting -> "Conectando…"
-                state is ConnState.Searching -> "Buscando Limits en la red…"
-                state is ConnState.Failed ->
-                    "Sin conexión: ${state.reason.take(120)}"
+                st is ConnState.Connected -> "Escuchando…"
+                st is ConnState.Connecting -> "Conectando…"
+                st is ConnState.Searching -> "Buscando Limits en la red…"
+                st is ConnState.Failed ->
+                    "Sin conexión: ${st.reason.take(120)}"
                 else -> ""
             }
             Text(
