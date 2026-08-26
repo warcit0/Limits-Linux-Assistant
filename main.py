@@ -192,7 +192,7 @@ def main():
             gemini_bridge = candidato
             executor.gemini = gemini_bridge
             console.print(f"[green]✓ Cerebro conversacional Gemini listo[/green] "
-                          f"[dim](investiga/infórmame/… o gemini_talk)[/dim]")
+                          f"[dim](investiga/investigame/busca/infórmame/… o gemini_talk)[/dim]")
         else:
             console.print(f"[yellow]GEMINI_BIN no encontrado: "
                           f"{config.GEMINI_BIN} — cerebro desactivado[/yellow]")

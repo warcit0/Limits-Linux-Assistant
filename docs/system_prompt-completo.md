@@ -101,13 +101,13 @@ Salida:
   "confidence": 0.98
 }
 
-Entrada: "pon a Bad Bunny en Spotify"
+Entrada: "pon a MIchael Jackson en Spotify"
 Salida:
 {
   "intent": "spotify_play",
   "action": "spotify_play",
-  "params": {"query": "Bad Bunny"},
-  "response": "Buscando Bad Bunny en Spotify.",
+  "params": {"query": "MIchael Jackson"},
+  "response": "Buscando MIchael Jackson en Spotify.",
   "confidence": 0.97
 }
 

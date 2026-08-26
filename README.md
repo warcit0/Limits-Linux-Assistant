@@ -138,7 +138,7 @@ Atajos disponibles: `limits-service start|stop|restart|status|logs`.
 |---|---|
 | *"abre Spotify"* / *"trae Discord al frente"* | Abre la app o enfoca su ventana |
 | *"sube el volumen al 70"* / *"baja el volumen 10"* | Volumen absoluto/relativo via `wpctl` |
-| *"pon a Bad Bunny en Spotify"* | Búsqueda directa en la app |
+| *"pon a MIchael Jackson en Spotify"* | Búsqueda directa en la app |
 | *"pon en youtube lo-fi solo audio"* | Reproduce con `mpv` sin video |
 | *"qué canción suena"* / *"dime la letra"* | Metadatos + letras leídas en voz alta |
 | *"busca cómo instalar docker"* | Abre Google y lee un resumen |

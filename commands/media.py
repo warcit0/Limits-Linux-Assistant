@@ -86,7 +86,7 @@ class MediaCommands:
             return True
         try:
             subprocess.Popen(
-                ["spotify"],
+                ["spotify-launcher"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )

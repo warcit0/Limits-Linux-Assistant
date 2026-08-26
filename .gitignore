@@ -8,6 +8,7 @@ __pycache__/
 limits-env/
 *.wav
 *.mp3
+.bin
 
 # builds android
 clients/android/local.properties

@@ -15,7 +15,7 @@ class AppCommands:
         "code":             ["code"],
         "vscode":           ["code"],
         "steam":            ["steam"],
-        "spotify":          ["spotify"],
+        "spotify":          ["spotify-launcher"],
         "discord":          ["discord"],
         "slack":            ["slack"],
         "obsidian":         ["obsidian"],
