@@ -224,6 +224,10 @@ def main():
                             break
                     
                     if not found_wake:
+                        # Feedback visible: sin esto, descartar en silencio
+                        # parece "no responde"
+                        console.print(f"[dim](sin wake word '{config.WAKE_WORD}' "
+                                      f"— ignorado)[/dim]")
                         continue
 
                     # Extraer comando (remover la wake word y limpiar puntuación)
