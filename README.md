@@ -166,9 +166,12 @@ Guía técnica detallada (convenciones, seguridad, estructura interna) en [AGENT
 | TTS (piper + fallback espeak) | ✅ Funcional |
 | Apps / Sistema / Ventanas | ✅ Funcional |
 | Multimedia (Spotify/YouTube/letras) | ✅ Funcional |
-| Suite de tests automatizados | 🚧 Pendiente |
+| Suite de tests automatizados | 🚧 En construcción (voz dual) |
 | Listener en hilo de fondo (`modules/listener.py`) | 🚧 Experimental, sin usar |
 | Wake word dedicada (openWakeWord/Porcupine) | 📋 Roadmap |
+| Voz natural ElevenLabs para respuestas largas (Piper queda para lo operativo) | ✅ Implementado — [`docs/plan-elevenlabs-tts.md`](docs/plan-elevenlabs-tts.md) |
+| Control remoto por voz desde Android + casting a TV | 📋 Diseño listo — [`docs/plan-control-remoto-android.md`](docs/plan-control-remoto-android.md) |
+| Cerebro conversacional Gemini Web (charla + investigación) | ⏸ En pausa — [`docs/integracion-gemini.md`](docs/integracion-gemini.md) |
 
 ## 📄 Licencia
 

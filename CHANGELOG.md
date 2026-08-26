@@ -53,6 +53,27 @@ Primera versión etiquetada. Estado: **unstable**.
 - Endurecimiento general descrito en Fixed (allowlist, confirmaciones, tipos).
 
 ## [Unreleased]
-- Suite de tests automatizada y CI.
+
+### Added
+- Voz dual: Piper para respuestas cortas del sistema y ElevenLabs (API gratuita)
+  para respuestas largas donde importa la entonación — letras, resúmenes web y el
+  futuro cerebro conversacional. Incluye router por longitud/origen
+  (`VoiceRouter`), tope por turno, cache de audio local, limpieza markdown→hablado
+  (`modules/voice_utils.py`) y fallback automático a Piper. Opt-in via `.env`;
+  diseño y contrato en `docs/plan-elevenlabs-tts.md`.
+- Primera suite de tests automatizada (`tests/`): 23 casos de la capa de voz con
+  HTTP/audio mockeados.
+
+### Planned
+- Control remoto por voz desde Android ("modo Jarvis"): gateway WebSocket
+  embebido que reutiliza el pipeline completo, app cliente Kotlin/Compose con
+  wake word y orbe HUD, y casting a TV via pychromecast como comandos nativos.
+  Diseño en `docs/plan-control-remoto-android.md`.
+
+- Integración del cerebro conversacional Gemini Web — EN PAUSA mientras el CLI
+  `gemdev` (hermes-web-clis) estabiliza. Diseño completo congelado en
+  `docs/integracion-gemini.md`; su salida usará ElevenLabs cuando llegue.
+
+- Ampliar la suite de tests al resto del sistema (executor, llm) y CI.
 - Activación del listener threaded (`modules/listener.py`) o wake word dedicada
   (openWakeWord/Porcupine).

@@ -104,3 +104,62 @@ class TTSEngine:
             )
         except FileNotFoundError:
             console.print("[red]⚠️  espeak-ng tampoco disponible. Sin audio.[/red]")
+
+
+class VoiceRouter:
+    """Elige el motor de voz por respuesta (ver docs/plan-elevenlabs-tts.md).
+
+    Matriz:
+      - mode "off" o sin ElevenLabs  → Piper (comportamiento clásico)
+      - mode "gemini"               → solo respuestas etiquetadas source="gemini"
+      - mode "auto"                 → largo (>= min_chars) a ElevenLabs, resto Piper
+
+    NUNCA falla: cualquier problema del motor natural cae a Piper. Respuestas que
+    exceden max_turn_chars se hablan en dos tramos sin cortar frases (primera vía
+    API para proteger la cuota, resto vía Piper).
+    """
+
+    def __init__(self, piper: TTSEngine, eleven=None,
+                 mode: str = "off", min_chars: int = 200,
+                 max_turn_chars: int = 1200):
+        self.piper = piper
+        self.eleven = eleven
+        self.mode = mode if mode in ("auto", "gemini", "off") else "off"
+        self.min_chars = max(0, min_chars)
+        self.max_turn_chars = max(40, max_turn_chars)
+
+    def speak(self, text: str, source: str = "system") -> None:
+        if not text or not text.strip():
+            return
+
+        engine = self._pick(text, source)
+        if engine is not self.eleven:
+            self.piper.speak(text)
+            return
+
+        from modules.voice_utils import clean_for_voice, split_for_voice
+        first, rest = split_for_voice(
+            clean_for_voice(text), self.max_turn_chars)
+        try:
+            self.eleven.speak(first)
+        except Exception as e:
+            console.print(f"[yellow]ElevenLabs no disponible ({e}); "
+                          f"usando Piper.[/yellow]")
+            self.piper.speak(first)
+        # El tope por turno protege la cuota; el resto sale con la voz local.
+        if rest:
+            self.piper.speak(rest)
+
+    def _pick(self, text: str, source: str = "system"):
+        """Devuelve el motor elegido según modo, origen y longitud."""
+        if self.mode == "off" or self.eleven is None:
+            return self.piper
+        if self.mode == "gemini":
+            return self.eleven if source == "gemini" else self.piper
+        # mode auto: umbral de longitud sobre el texto limpio
+        from modules.voice_utils import clean_for_voice
+        return (
+            self.eleven
+            if len(clean_for_voice(text)) >= self.min_chars
+            else self.piper
+        )

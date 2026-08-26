@@ -59,6 +59,7 @@ No hay suite de tests ni CI todavía (pendiente, ver CHANGELOG). Antes de cada c
 | `commands/media.py` | Spotify URI, YouTube mpv+yt-dlp, letras lyrics.ovh, canción actual |
 | `commands/custom.py` | Plantilla vacía para comandos del usuario |
 | `prompts/system_prompt.txt` | System prompt few-shot. `{username}` se sustituye desde env |
+| `docs/` | Documentación de diseño de integraciones planificadas |
 | `setup-service.sh` | Instala `~/.config/systemd/user/limits.service` |
 
 ## 4. Flujo de datos de un turno
@@ -117,6 +118,37 @@ main.run_pipeline(user_input)
 - Si añades un campo al JSON de respuesta, valida su tipo en `execute()` igual que
   los existentes.
 - `HISTORY_SIZE` (6) controla cuántos turnos se conservan Y se envían.
+
+### Integración Gemini conversacional (EN PAUSA)
+- **Decisión 2026-08-25:** pausada mientras el CLI `gemdev` de
+  `~/Work/hermes-web-clis` estabiliza (repo en desarrollo activo). El diseño
+  congelado vive en `docs/integracion-gemini.md`; NO implementarlo sin despausar.
+- Regla dura cuando se retome: la salida de Gemini va SOLO a TTS/log, jamás al
+  `action_map` ni al executor (bloquea prompt injection desde contenido web).
+  Serán actions nuevas (`gemini_talk`/`gemini_research`) delegando en un
+  `GeminiBridge` por subprocess.
+
+### Control remoto desde Android (planeado → diseño listo)
+- Diseño en `docs/plan-control-remoto-android.md`: gateway WebSocket embebido en
+  Limits (hilo, mismo proceso) que alimenta `run_pipeline` tal cual; app Android
+  en `clients/android/`; casting a TV como comandos nuevos (`commands/tv.py`)
+  aprovechables también por voz local.
+- Reglas duras cuando se implemente: el texto del móvil pasa por el MISMO router
+  LLM + executor (cero superficie nueva); token de pairing obligatorio; lock
+  global serializa turnos voz-local vs móvil (nunca intercalar salidas).
+
+### Voz natural ElevenLabs (implementada)
+- Voz dual por economía de cuota: Piper para respuestas cortas del sistema,
+  ElevenLabs (API free) para respuestas largas donde importa la entonación (y
+  para el futuro puente Gemini). Router `VoiceRouter` (`modules/tts.py`) por
+  modo (`auto|gemini|off`), umbral de longitud, tope por turno, cache de frases
+  y fallback automático a Piper ante cualquier fallo. Opt-in vía `.env`.
+- Módulos: `modules/tts_elevenlabs.py` (motor), `modules/voice_utils.py`
+  (limpieza markdown→hablado + cortes por frase), tests en `tests/test_voice.py`.
+- Regla dura: la salida de ElevenLabs es solo audio hablado; jamás se parsea ni
+  alimenta al executor. La API key vive SOLO en `.env`, nunca en código/logs.
+- Las utilidades de voz son compartidas: cuando el puente Gemini se retome, su
+  salida etiquetada `source="gemini"` pasa por la misma capa sin cambios.
 
 ## 7. Gotchas conocidos
 

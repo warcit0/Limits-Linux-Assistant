@@ -19,7 +19,8 @@ from rich.panel import Panel
 from config import Config
 from modules.llm import LLMEngine
 from modules.executor import CommandExecutor
-from modules.tts import TTSEngine
+from modules.tts import TTSEngine, VoiceRouter
+from modules.tts_elevenlabs import ElevenLabsEngine
 from version import __version__, STATUS
 
 console = Console()
@@ -50,10 +51,17 @@ signal.signal(signal.SIGTERM, _handle_sigterm)
 # ── Funciones principales ─────────────────────────────────────────────────────
 
 def print_banner(config: Config):
+    eleven_on = (
+        config.ELEVENLABS_ENABLED
+        and config.ELEVENLABS_API_KEY
+        and config.ELEVENLABS_VOICE_ID
+        and config.ELEVENLABS_MODE != "off"
+    )
+    voz = f"piper + ElevenLabs({config.ELEVENLABS_MODE})" if eleven_on else "piper"
     console.print(Panel.fit(
         f"[bold cyan]🤖 Limits LINUX[/bold cyan] [dim]{__version__} ({STATUS})[/dim]\n"
         f"[dim]LLM: {config.OLLAMA_MODEL} (Ollama local)[/dim]\n"
-        f"[dim]STT: Whisper {config.WHISPER_MODEL} | TTS: piper[/dim]\n"
+        f"[dim]STT: Whisper {config.WHISPER_MODEL} | TTS: {voz}[/dim]\n"
         f"[dim]Wake word: '{config.WAKE_WORD}' — Di 'salir' para terminar[/dim]",
         border_style="cyan",
     ))
@@ -84,10 +92,39 @@ def main():
     console.print("\n[bold]Iniciando módulos...[/bold]")
     llm      = LLMEngine(config)
     executor = CommandExecutor()
-    tts      = TTSEngine(
+
+    # ── Voz dual: Piper (corto/sistema) + ElevenLabs (largo/natural, opt-in) ──
+    piper = TTSEngine(
         voice_model=config.PIPER_VOICE_MODEL,
         voice_speed=config.VOICE_SPEED,
         speaker=config.VOICE_SPEAKER
+    )
+    eleven = None
+    if (config.ELEVENLABS_ENABLED
+            and config.ELEVENLABS_API_KEY
+            and config.ELEVENLABS_VOICE_ID
+            and config.ELEVENLABS_MODE != "off"):
+        try:
+            eleven = ElevenLabsEngine(
+                api_key=config.ELEVENLABS_API_KEY,
+                voice_id=config.ELEVENLABS_VOICE_ID,
+                model=config.ELEVENLABS_MODEL,
+                stability=config.ELEVENLABS_STABILITY,
+                similarity=config.ELEVENLABS_SIMILARITY,
+                use_cache=config.ELEVENLABS_CACHE,
+            )
+        except Exception as e:
+            console.print(f"[yellow]ElevenLabs desactivado: {e}[/yellow]")
+    elif config.ELEVENLABS_ENABLED:
+        console.print("[dim]ELEVENLABS_ENABLED sin key/voice_id válidos — "
+                      "solo Piper.[/dim]")
+
+    tts = VoiceRouter(
+        piper=piper,
+        eleven=eleven,
+        mode=config.ELEVENLABS_MODE if eleven else "off",
+        min_chars=config.ELEVENLABS_MIN_CHARS,
+        max_turn_chars=config.ELEVENLABS_MAX_TURN_CHARS,
     )
 
     stt = None
