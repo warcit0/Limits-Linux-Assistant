@@ -203,14 +203,17 @@ fun JarvisScreen() {
                 state is ConnState.Connected -> "Escuchando…"
                 state is ConnState.Connecting -> "Conectando…"
                 state is ConnState.Searching -> "Buscando Limits en la red…"
-                state is ConnState.Failed -> "Sin conexión"
+                state is ConnState.Failed ->
+                    "Sin conexión: ${state.reason.take(120)}"
                 else -> ""
             }
             Text(
                 statusText,
                 color = if (state is ConnState.Failed) HudRed else HudText.copy(alpha = 0.85f),
                 fontFamily = FontFamily.Monospace,
-                fontSize = 13.sp,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                textAlign = TextAlign.Center,
             )
 
             Spacer(Modifier.height(10.dp))

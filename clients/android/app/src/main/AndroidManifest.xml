@@ -9,7 +9,10 @@
     <application
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Limits">
+        android:theme="@style/Theme.Limits"
+        android:usesCleartextTraffic="true">
+        <!-- usesCleartextTraffic: ws:// es plano a propósito (LAN doméstica +
+             token Bearer; decisión documentada en plan-control-remoto-android §4) -->
 
         <activity
             android:name=".MainActivity"
