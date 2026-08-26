@@ -5,10 +5,13 @@ Módulo de control multimedia avanzado.
 """
 
 import subprocess
+import time
 import urllib.request
 import urllib.parse
 import json
 import re
+
+import psutil
 from rich.console import Console
 
 console = Console()
@@ -32,23 +35,71 @@ class MediaCommands:
 
     def spotify_play(self, query: str) -> str:
         """
-        Busca y reproduce una canción/artista específico en Spotify.
-        Usa el esquema URI de Spotify para abrir directamente la búsqueda en la app.
+        Reproduce una búsqueda EN SERIO en Spotify (no solo abrir resultados):
+        1. Asegura Spotify corriendo (lo lanza si falta)
+        2. Abre la búsqueda vía MPRIS (playerctl open) — fallback xdg-open
+        3. Dispara play sobre el primer resultado
         """
         encoded = urllib.parse.quote(query)
         uri = f"spotify:search:{encoded}"
-        console.print(f"[green]🎵 Buscando en Spotify: {query}[/green]")
+        console.print(f"[green]🎵 Reproduciendo en Spotify: {query}[/green]")
+
+        if not self._ensure_spotify_running():
+            console.print("[red]Spotify no arrancó a tiempo.[/red]")
+            return "No pude iniciar Spotify."
+
+        opened = subprocess.run(
+            ["playerctl", "--player", "spotify", "open", uri],
+            capture_output=True, timeout=5, check=False,
+        ).returncode == 0
+        if not opened:
+            try:
+                subprocess.Popen(
+                    ["xdg-open", uri],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            except Exception as e:
+                console.print(f"[red]Error al abrir Spotify: {e}[/red]")
+                return "No pude abrir Spotify."
+            time.sleep(2)
+
+        # Play sobre el primer resultado de la búsqueda
+        time.sleep(2 if opened else 0)
+        subprocess.run(
+            ["playerctl", "--player", "spotify", "play"],
+            capture_output=True, timeout=5, check=False,
+        )
+        return f"Reproduciendo {query} en Spotify."
+
+    @staticmethod
+    def _ensure_spotify_running(timeout_s: float = 10.0) -> bool:
+        """True si Spotify queda corriendo (lo lanza y espera su proceso)."""
+        def _alive() -> bool:
+            return any(
+                "spotify" in (p.info.get("name") or "").lower()
+                for p in psutil.process_iter(["name"])
+                if p.info.get("name")
+            )
+
+        if _alive():
+            return True
         try:
             subprocess.Popen(
-                ["xdg-open", uri],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                ["spotify"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            return f"Buscando {query} en Spotify."
-        except Exception as e:
-            console.print(f"[red]Error al abrir Spotify: {e}[/red]")
-            return "No pude abrir Spotify."
+        except FileNotFoundError:
+            console.print("[red]Spotify no está instalado.[/red]")
+            return False
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            if _alive():
+                time.sleep(1.5)  # margen para que MPRIS aparezca
+                return True
+            time.sleep(0.4)
+        return False
 
     def youtube_play(self, query: str, audio_only: bool = False) -> str:
         """
