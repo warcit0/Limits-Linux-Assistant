@@ -49,8 +49,26 @@ class TTSEngine:
     def _speak_piper(self, text: str) -> None:
         """Síntesis de voz con piper-tts (calidad alta, local)."""
         try:
+            import shutil
+            import sys
+            # Orden: 1) piper del propio venv (motor TTS real), 2) "piper-tts"
+            # en PATH, 3) "piper" en PATH — OJO: en Arch /usr/bin/piper es la
+            # utilidad de ratones, por eso el venv tiene prioridad absoluta.
+            from pathlib import Path
+            candidates = [
+                str(Path(sys.executable).parent / "piper"),
+                shutil.which("piper-tts"),
+                shutil.which("piper"),
+            ]
+            binary = next(
+                (c for c in candidates if c and Path(c).exists() and os.access(c, os.X_OK)),
+                None,
+            )
+            if binary is None:
+                raise FileNotFoundError("binario piper-tts no encontrado")
+            console.print(f"[dim]TTS motor: {binary}[/dim]")
             piper_cmd = [
-                "piper-tts",
+                binary,
                 "--model", self.voice_model,
                 "--output-raw",
                 "--length-scale", str(1.0 / self.voice_speed),

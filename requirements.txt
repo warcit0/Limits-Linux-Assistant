@@ -14,3 +14,4 @@ uvicorn==0.52.4
 websockets==17.0.1
 zeroconf==0.150.0
 pychromecast==14.0.10
+piper-tts==1.7.0
