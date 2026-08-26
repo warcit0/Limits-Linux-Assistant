@@ -1,7 +1,8 @@
 # Plan: Control remoto por voz desde Android ("modo Jarvis en casa")
 
-> Estado: **EN CURSO — F1 (gateway) y F2 (casting TV) implementados y probados**
-> (52 tests + integración E2E). Pendiente: app Android (F3–F6).
+> Estado: **EN CURSO — F1 (gateway), F2 (casting TV) y F3-esqueleto (app
+> Android compilada) implementados**. Pendiente: prueba de F3 en dispositivo
+> físico y fases F4–F6 (wake word, pulido, orbe final).
 > Origen: adaptación del prompt "Asistente IA Personal Jarvis" (app Android +
 > servidor PC) a la arquitectura existente de Limits.
 > Principio rector: **no se rehace nada que Limits ya hace bien** — el teléfono es
@@ -200,12 +201,16 @@ mientras el PC habla.
 - [ ] Done: por voz en el PC: "qué TVs hay", "castea lo que estoy viendo",
       "pausa la tele" funcionan end-to-end
 
-**F3 — App Android esqueleto**
-- [ ] Proyecto Compose + pantalla única con estado conexión + botón "hablar"
-      (sin wake word) + historial estilo terminal
-- [ ] Descubrimiento mDNS + pairing manual del token (campo de texto; QR en F6)
-- [ ] Done: desde el móvil: "abre spotify" abre Spotify en el PC y el orbe muestra
-      la respuesta
+**F3 — App Android esqueleto** *(código completo; pendiente prueba en móvil)*
+- [x] Proyecto Compose + pantalla única con estado conexión + botón "hablar"
+      con STT nativo (RecognizerIntent es-ES) + historial estilo terminal
+      + orbe animado básico (respiración cyan / giro violeta al procesar)
+- [x] Descubrimiento mDNS (NSD `_limits._tcp`) + pairing manual del token
+      (campo ⚙; QR en F6)
+- [x] Toolchain sin Android Studio: SDK cmdline-tools + Gradle 8.9 en `~/Android`
+      y `~/Tools`; wrapper generado; APK debug ~9 MB
+- [ ] Done real: desde el móvil: "abre spotify" abre Spotify en el PC y el orbe
+      muestra la respuesta
 
 **F4 — Voz completa en el móvil**
 - [ ] SpeechRecognizer → reemplaza botón; luego wake word (Porcupine u

@@ -8,3 +8,9 @@ __pycache__/
 limits-env/
 *.wav
 *.mp3
+
+# builds android
+clients/android/local.properties
+clients/android/.gradle/
+clients/android/build/
+clients/android/app/build/

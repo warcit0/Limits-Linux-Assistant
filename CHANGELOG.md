@@ -76,6 +76,11 @@ Primera versión etiquetada. Estado: **unstable**.
   endpoint `/media/`.
 - Tests del gateway/pipeline compartido (16) y de TV (13): servidor uvicorn real
   en puerto efímero con clientes websocket; total 52 casos.
+- App Android esqueleto (F3): Kotlin + Jetpack Compose, una sola pantalla HUD
+  (orbe animado, historial monoespaciado), descubrimiento mDNS del gateway,
+  token de pairing manual, reconocimiento de voz nativo y reconexión automática.
+  Compila sin Android Studio (SDK cmdline-tools + Gradle); instrucciones en
+  `clients/android/README.md`.
 
 ### Planned
 - App Android del control remoto (F3–F6): Kotlin/Compose, wake word, orbe HUD.
