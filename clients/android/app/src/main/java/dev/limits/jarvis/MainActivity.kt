@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.widget.Toast
@@ -102,6 +103,19 @@ fun JarvisScreen() {
     // Endpoint resuelto: manual gana sobre descubrimiento mDNS
     var discovered by remember { mutableStateOf<Pair<String, Int>?>(null) }
 
+    // BUGFIX: sin multicast lock muchos móviles NUNCA ven los anuncios mDNS
+    val multicastLock = remember {
+        (context.applicationContext.getSystemService(Context.WIFI_SERVICE)
+                as WifiManager)
+            .createMulticastLock("limits_mdns")
+            .apply { setReferenceCounted(false); acquire() }
+    }
+    DisposableEffect(Unit) {
+        onDispose { if (multicastLock.isHeld) multicastLock.release() }
+    }
+
+    val tokenMissing = settings.token.isBlank()
+
     // Descubrimiento mDNS mientras esté en modo automático
     DisposableEffect(settings.autoDiscover) {
         val disc = if (settings.autoDiscover) {
@@ -112,20 +126,34 @@ fun JarvisScreen() {
         onDispose { disc?.stop() }
     }
 
-    // Conexión al endpoint vigente
+    // Conexión al endpoint vigente (sin mensajes falsos en el historial)
     LaunchedEffect(
         settings.autoDiscover,
         settings.host, settings.port, settings.token,
         discovered?.first, discovered?.second,
     ) {
-        val ep = if (!settings.autoDiscover && settings.host != null && settings.port != null)
-            (settings.host!! to settings.port!!)
-        else discovered
-        if (settings.token.isNotBlank()) {
-            if (ep != null) session.start(ep.first, ep.second, settings.token.trim())
-        } else {
-            session.addLog("configura el token de emparejamiento ⚙", mine = false, ok = false)
-            delay(4000)
+        val manual = !settings.autoDiscover &&
+                settings.host != null && settings.port != null
+        val ep = if (manual) (settings.host!! to settings.port!!) else discovered
+        if (!tokenMissing && ep != null) {
+            session.start(ep.first, ep.second, settings.token.trim())
+        }
+    }
+
+    // Ayuda una sola vez si el mDNS no encuentra nada teniendo token válido
+    var hinted by remember { mutableStateOf(false) }
+    LaunchedEffect(settings.autoDiscover, settings.token, discovered) {
+        val hasEp = (!settings.autoDiscover && settings.host != null) ||
+                discovered != null
+        if (!hinted && !tokenMissing && !hasEp && settings.autoDiscover) {
+            delay(8000)
+            if (discovered == null && settings.token.isNotBlank()) {
+                session.addLog(
+                    "mDNS no encuentra el PC. Toca ⚙, desactiva " +
+                            "'auto' y pon la IP manual.",
+                    mine = false, ok = false)
+                hinted = true
+            }
         }
     }
 
@@ -164,6 +192,7 @@ fun JarvisScreen() {
             }
 
             val statusText = when {
+                tokenMissing -> "⚙ Toca el engranaje y pega el token del PC"
                 processing -> "Procesando…"
                 state is ConnState.Connected -> "Escuchando…"
                 state is ConnState.Connecting -> "Conectando…"
