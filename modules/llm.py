@@ -94,9 +94,11 @@ class LLMEngine:
                 ],
                 "stream": False,
                 "format": "json",
+                "keep_alive": self.config.OLLAMA_KEEP_ALIVE,
                 "options": {
                     "temperature": 0.1,
-                    "num_predict": 300,
+                    "num_predict": 200,
+                    "num_ctx": self.config.OLLAMA_NUM_CTX,
                 },
             }
 
@@ -182,19 +184,23 @@ class LLMEngine:
     def process(self, user_text: str) -> dict:
         """
         Procesa texto del usuario y devuelve la intención estructurada.
-        Prioriza Groq (si está configurado) por su velocidad, usando Ollama como fallback.
+        Orden según config.LLM_PRIORITY: "local" (Ollama→Groq) o "cloud"
+        (Groq→Ollama). El JSON no-objeto de un motor cuenta como fallo y
+        activa el siguiente.
         """
         console.print(f"[dim]Procesando: '{user_text}'[/dim]")
 
-        # El JSON válido puede no ser un objeto (ej. lista/string): se trata como
-        # fallo y se pasa al siguiente motor.
-        result = self._query_groq(user_text) if self.groq_client else None
-        if not isinstance(result, dict):
-            if result is not None:
-                console.print("[yellow]Groq devolvió JSON no-objeto. Probando Ollama...[/yellow]")
-            result = self._query_ollama(user_text)
-            if not isinstance(result, dict):
-                result = None
+        def _valid(r):
+            return r if isinstance(r, dict) else None
+
+        primary, secondary = (
+            (self._query_ollama, self._query_groq)
+            if self.config.LLM_PRIORITY == "local"
+            else (self._query_groq, self._query_ollama)
+        )
+        result = _valid(primary(user_text))
+        if result is None:
+            result = _valid(secondary(user_text))
 
         if not result:
             return {

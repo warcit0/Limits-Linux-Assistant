@@ -59,9 +59,11 @@ def print_banner(config: Config):
         and config.ELEVENLABS_MODE != "off"
     )
     voz = f"piper + ElevenLabs({config.ELEVENLABS_MODE})" if eleven_on else "piper"
+    llm_label = (f"{config.OLLAMA_MODEL} (local)" if config.LLM_PRIORITY == "local"
+                 else f"Groq {config.GROQ_MODEL.split('/')[-1]}")
     console.print(Panel.fit(
         f"[bold cyan]🤖 Limits LINUX[/bold cyan] [dim]{__version__} ({STATUS})[/dim]\n"
-        f"[dim]LLM: {config.OLLAMA_MODEL} (Ollama local)[/dim]\n"
+        f"[dim]LLM: {llm_label}[/dim]\n"
         f"[dim]STT: Whisper {config.WHISPER_MODEL} | TTS: {voz}[/dim]\n"
         f"[dim]Wake word: '{config.WAKE_WORD}' — Di 'salir' para terminar[/dim]",
         border_style="cyan",
