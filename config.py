@@ -13,6 +13,9 @@ class Config:
     OLLAMA_URL: str        = os.getenv("OLLAMA_URL", "http://localhost:11434")
     OLLAMA_MODEL: str      = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
     GROQ_API_KEY: str      = os.getenv("GROQ_API_KEY", "")
+    # Modelo Groq para intents (rotan con el tiempo: ver api.groq.com/v1/models)
+    # Benchmarked 2026-08-25: qwen3.6-27b ~750-1300ms estable en free tier
+    GROQ_MODEL: str        = os.getenv("GROQ_MODEL", "qwen/qwen3.6-27b")
     WHISPER_MODEL: str     = os.getenv("WHISPER_MODEL", "small")
     LANGUAGE: str          = os.getenv("LANGUAGE", "es")
     STT_DEVICE: str        = os.getenv("STT_DEVICE", "cpu")

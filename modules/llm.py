@@ -122,7 +122,7 @@ class LLMEngine:
 
         try:
             response = self.groq_client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model=self.config.GROQ_MODEL,
                 messages=[
                     {"role": "system", "content": self.system_prompt},
                     *self.conversation_history,
