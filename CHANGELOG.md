@@ -55,6 +55,15 @@ Primera versión etiquetada. Estado: **unstable**.
 ## [Unreleased]
 
 ### Added
+- Órdenes de archivos atómicas: `search_and_open`, `reveal_file`, `copy_file`,
+  `move_file`, `rename_file`; `search_file` ahora habla rutas. Move/rename en
+  `DANGEROUS_ACTIONS`. Few-shots locales en el system prompt (anti-confusión
+  con `web_search`).
+- Lane compuesto `desktop_task` (`modules/desktop_agent.py`): loop de tools
+  tipadas + Ollama/Qwen sin aflojar el router global. Docs:
+  `docs/plan-desktop-task.md`, auditoría `docs/catalogo-ordenes-audit.md`.
+  Tipar/redactar en apps aplazado: `docs/track-redactar-apps.md`.
+- Corpus `tests/corpus_ordenes.json` + `./bin/measure-router` (precisión/latencia).
 - Voz dual: Piper para respuestas cortas del sistema y ElevenLabs (API gratuita)
   para respuestas largas donde importa la entonación — letras, resúmenes web y el
   futuro cerebro conversacional. Incluye router por longitud/origen

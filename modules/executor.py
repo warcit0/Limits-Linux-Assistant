@@ -7,7 +7,6 @@ SEGURIDAD:
   - El estado de confirmación pendiente se guarda entre turnos.
 """
 
-import psutil
 from rich.console import Console
 from commands.apps import AppCommands
 from commands.system import SystemCommands
@@ -17,12 +16,13 @@ from commands.files import FileCommands
 from commands.custom import CustomCommands
 from commands.media import MediaCommands
 from commands.tv import TVCommands
+from modules.desktop_agent import DesktopAgent
 
 console = Console()
 
 
 class CommandExecutor:
-    def __init__(self):
+    def __init__(self, desktop_agent: DesktopAgent | None = None):
         self.apps    = AppCommands()
         self.system  = SystemCommands()
         self.web     = WebCommands()
@@ -32,6 +32,18 @@ class CommandExecutor:
         self.media   = MediaCommands()
         self.tv      = TVCommands()
         self.gemini  = None  # lo asigna main.py si GEMINI_ENABLED (GeminiBridge)
+
+        # Estado de confirmación pendiente (antes del agent: propose_* lo usa)
+        self._pending_action: dict | None = None
+
+        # Lane compuesto (tools tipadas + Qwen). main.py puede inyectar uno
+        # configurado; si no, se crea con defaults de Ollama.
+        self.desktop_agent = desktop_agent or DesktopAgent(
+            files=self.files,
+            pending_setter=self._set_pending,
+        )
+        self.desktop_agent.bind_files(self.files)
+        self.desktop_agent._set_pending = self._set_pending
 
         # Mapeo action → handler
         self.action_map = {
@@ -76,17 +88,21 @@ class CommandExecutor:
             "open_project":         self.dev.open_project,
             # Archivos
             "search_file":          self.files.search_file,
+            "search_and_open":      self.files.search_and_open,
             "open_file":            self.files.open_file,
+            "reveal_file":          self.files.reveal_file,
+            "copy_file":            self.files.copy_file,
+            "move_file":            self.files.move_file,
+            "rename_file":          self.files.rename_file,
             "list_directory":       self.files.list_directory,
+            # Lane compuesto (multi-paso tipado)
+            "desktop_task":         self._desktop_task,
             # Error
             "speak_error":          self._noop,
         }
 
         # Acciones que siempre requieren confirmación
-        self.DANGEROUS_ACTIONS = {"shutdown", "reboot"}
-
-        # Estado de confirmación pendiente
-        self._pending_action: dict | None = None
+        self.DANGEROUS_ACTIONS = {"shutdown", "reboot", "move_file", "rename_file"}
 
     # ──────────────────────────────────────────────────────────────────────────
     # Interfaz pública
@@ -170,6 +186,18 @@ class CommandExecutor:
 
     def _noop(self, **kwargs) -> None:
         pass
+
+    def _set_pending(self, action: str, params: dict, response: str) -> None:
+        """Usado por DesktopAgent.propose_* para el flujo confirm/cancel."""
+        self._pending_action = {
+            "action": action,
+            "params": params,
+            "response": response,
+        }
+
+    def _desktop_task(self, goal: str) -> str:
+        """Lane compuesto: loop de tools tipadas (sin shell)."""
+        return self.desktop_agent.run(goal)
 
     # ── Cerebro conversacional ───────────────────────────────────────────────
 

@@ -55,19 +55,22 @@ No hay suite de tests ni CI todavía (pendiente, ver CHANGELOG). Antes de cada c
 | `modules/stt.py` | PyAudio + webrtcvad (corte: 900ms silencio / máx 10s) + faster-whisper int8 |
 | `modules/tts.py` | piper-tts → pipe → aplay 22050Hz S16LE; fallback espeak-ng |
 | `modules/executor.py` | `action_map` action→handler, cortafuegos de tipos/params, flujo confirm/cancel con estado |
+| `modules/desktop_agent.py` | Lane compuesto `desktop_task`: loop tools tipadas + Ollama/Qwen (sin shell) |
 | `modules/gateway.py` | Gateway WebSocket móvil (`GATEWAY_ENABLED`): token pairing, lock de turno vía pipeline compartido, media firmada para casting |
 | `modules/listener.py` | ⚠️ NO USADO — versión threaded futura del wake word |
 | `commands/apps.py` | Abrir/cerrar apps (`APP_MAP`, `PROCESS_ALIASES`) |
 | `commands/system.py` | Volumen/brillo/lock/info/shutdown/hyprland (`WINDOW_CLASS_MAP`) |
 | `commands/web.py` | Búsquedas (raspa DDG Lite para resumen hablado) y URLs |
 | `commands/dev.py` | Terminal con allowlist, git/docker status, abrir proyectos |
-| `commands/files.py` | fd/find, xdg-open, listar directorios |
+| `commands/files.py` | fd/find, search_and_open, reveal (Thunar), copy/move/rename, listar |
 | `commands/media.py` | Spotify URI, YouTube mpv+yt-dlp, letras lyrics.ovh, canción actual |
 | `commands/tv.py` | Casting a Chromecast/Android TV: discover/list, cast (current/query), control |
 | `commands/custom.py` | Plantilla vacía para comandos del usuario |
 | `prompts/system_prompt.txt` | System prompt few-shot. `{username}` se sustituye desde env |
-| `tests/` | Suite unittest (voz, gateway/pipeline, TV) sin red ni hardware real |
-| `docs/` | Documentación de diseño de integraciones planificadas |
+| `tests/` | Suite unittest (voz, gateway, TV, files, desktop_agent, corpus) |
+| `tests/corpus_ordenes.json` | Frases → action esperada; medir con `./bin/measure-router` |
+| `docs/` | Diseño de integraciones; `catalogo-ordenes-audit.md`, `plan-desktop-task.md` |
+| `docs/track-redactar-apps.md` | APLAZADO — tipar/redactar en apps (adapters UI), no mezclar con el router |
 | `setup-service.sh` | Instala `~/.config/systemd/user/limits.service` |
 
 ## 4. Flujo de datos de un turno
@@ -93,10 +96,10 @@ main.run_pipeline(user_input)
 2. **Allowlist en `dev.py`:** match exacto o con límite de palabra (`cmd == safe or
    cmd.startswith(safe + " ")`). No añadir `curl`, `cat`, `sudo`, `rm` ni anything
    que pueda leer archivos privados o hacer red arbitraria.
-3. **Confirmaciones explícitas:** `shutdown`/`reboot` viven en
-   `DANGEROUS_ACTIONS`. La decisión SOLA viene del intent `confirm`/`cancel`
-   (enseñado en el system prompt). Jamás inferir de substrings ("sí", "ok") dentro
-   de respuestas libres.
+3. **Confirmaciones explícitas:** `shutdown`/`reboot`/`move_file`/`rename_file`
+   viven en `DANGEROUS_ACTIONS`. El agent compuesto usa `propose_move`/
+   `propose_rename` (mismo pending). La decisión SOLA viene del intent
+   `confirm`/`cancel`. Jamás inferir de substrings ("sí", "ok") en texto libre.
 4. **Cortafuegos de tipos:** el LLM alucina estructuras. `execute()` coacciona tipos
    (`params` debe ser dict, `confidence` float, etc.) y `_run()` filtra kwargs contra
    la firma real del handler. Cualquier handler nuevo hereda esta protección gratis.
@@ -126,6 +129,12 @@ main.run_pipeline(user_input)
 - Si añades un campo al JSON de respuesta, valida su tipo en `execute()` igual que
   los existentes.
 - `HISTORY_SIZE` (6) controla cuántos turnos se conservan Y se envían.
+
+### Lane compuesto desktop_task
+- Frases multi-paso de archivos → action `desktop_task` + `params.goal` verbatim.
+- Loop en `modules/desktop_agent.py` (Ollama/Qwen, máx `DESKTOP_AGENT_MAX_STEPS`).
+- Solo tools tipadas de `FileCommands` + propose_move/rename. Sin shell.
+- Detalle: `docs/plan-desktop-task.md`. Redactar-en-apps: `docs/track-redactar-apps.md`.
 
 ### Integración Gemini conversacional (F1 implementada)
 - **Despausada 2026-08-25**: `modules/gemini.py` implementa el puente por

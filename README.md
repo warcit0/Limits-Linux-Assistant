@@ -173,7 +173,8 @@ Guía técnica detallada (convenciones, seguridad, estructura interna) en [AGENT
 | TTS (piper + fallback espeak) | ✅ Funcional |
 | Apps / Sistema / Ventanas | ✅ Funcional |
 | Multimedia (Spotify/YouTube/letras) | ✅ Funcional |
-| Suite de tests automatizados | 🚧 En construcción (voz dual) |
+| Archivos (buscar/abrir/revelar/copiar/mover) + desktop_task | ✅ Fase 1–2 |
+| Suite de tests automatizados | ✅ voz/gateway/TV/files/agent + corpus |
 | Listener en hilo de fondo (`modules/listener.py`) | 🚧 Experimental, sin usar |
 | Wake word dedicada (openWakeWord/Porcupine) | 📋 Roadmap |
 | Voz natural ElevenLabs para respuestas largas (Piper queda para lo operativo) | ✅ Implementado — [`docs/plan-elevenlabs-tts.md`](docs/plan-elevenlabs-tts.md) |

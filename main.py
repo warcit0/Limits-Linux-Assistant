@@ -103,6 +103,24 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                         tts.speak(response_text)
                     return response_text
 
+            # ── Lane compuesto archivos (multi-paso) por palabras clave ─────
+            from modules.desktop_agent import match_desktop_task_route
+            desktop_goal = match_desktop_task_route(user_input)
+            if desktop_goal:
+                log.info("turno desktop_task vía palabra clave")
+                parsed = {
+                    "intent": "desktop_task",
+                    "action": "desktop_task",
+                    "params": {"goal": desktop_goal},
+                    "response": "Voy.",
+                    "confidence": 1.0,
+                }
+                response_text = executor.execute(parsed)
+                log.info("turno desktop_task completado")
+                if speak:
+                    tts.speak(response_text)
+                return response_text
+
             # ── Ruta operativa (LLM router → executor) ───────────────────────
             log.debug(f"INPUT: {user_input}")
             parsed = llm.process(user_input)
@@ -130,7 +148,16 @@ def main():
 
     console.print("\n[bold]Iniciando módulos...[/bold]")
     llm      = LLMEngine(config)
-    executor = CommandExecutor()
+    from modules.desktop_agent import DesktopAgent
+    desktop_agent = DesktopAgent(
+        files=None,  # CommandExecutor re-bind a self.files
+        ollama_url=config.OLLAMA_URL,
+        ollama_model=config.OLLAMA_MODEL,
+        keep_alive=config.OLLAMA_KEEP_ALIVE,
+        num_ctx=config.OLLAMA_NUM_CTX,
+        max_steps=config.DESKTOP_AGENT_MAX_STEPS,
+    )
+    executor = CommandExecutor(desktop_agent=desktop_agent)
 
     # ── Voz dual: Piper (corto/sistema) + ElevenLabs (largo/natural, opt-in) ──
     piper = TTSEngine(

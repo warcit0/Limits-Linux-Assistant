@@ -60,3 +60,7 @@ class Config:
     GATEWAY_MDNS_NAME: str        = os.getenv("GATEWAY_MDNS_NAME", "Limits")
     GATEWAY_SPEAK_LOCAL: bool     = _env_bool("GATEWAY_SPEAK_LOCAL", "true")
     GATEWAY_TOKEN_PATH: str       = os.getenv("GATEWAY_TOKEN_PATH", "")
+
+    # ── Lane compuesto desktop_task (tools tipadas + Ollama/Qwen) ────────────
+    # El clasificador strict sigue eligiendo desktop_task; el loop usa Ollama.
+    DESKTOP_AGENT_MAX_STEPS: int  = int(os.getenv("DESKTOP_AGENT_MAX_STEPS", "6"))

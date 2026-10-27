@@ -1,0 +1,20 @@
+[
+  {"phrase": "abre el navegador", "action": "open_application"},
+  {"phrase": "sube el volumen al 70", "action": "set_volume"},
+  {"phrase": "busca gatos en google", "action": "web_search"},
+  {"phrase": "busca el archivo config.py", "action": "search_file"},
+  {"phrase": "busca main.py y ábrelo", "action": "search_and_open"},
+  {"phrase": "muéstrame informe.pdf en el explorador", "action": "reveal_file"},
+  {"phrase": "copia ~/a.txt a ~/Desktop/a.txt", "action": "copy_file"},
+  {"phrase": "mueve ~/Downloads/foto.png al escritorio", "action": "move_file"},
+  {"phrase": "renombra notas.txt a bitacora.txt", "action": "rename_file"},
+  {"phrase": "busca el PDF de impuestos en Descargas y cópialo al escritorio", "action": "desktop_task"},
+  {"phrase": "abre el proyecto Limits en code", "action": "open_project"},
+  {"phrase": "cierra spotify", "action": "close_application"},
+  {"phrase": "apaga el sistema", "action": "shutdown"},
+  {"phrase": "sí, hazlo", "action": "confirm"},
+  {"phrase": "qué canción suena", "action": "get_current_song"},
+  {"phrase": "¿cuánta RAM estoy usando?", "action": "get_system_info"},
+  {"phrase": "lista la carpeta Descargas", "action": "list_directory"},
+  {"phrase": "abre el archivo ~/Proyectos/Limits/README.md", "action": "open_file"}
+]
