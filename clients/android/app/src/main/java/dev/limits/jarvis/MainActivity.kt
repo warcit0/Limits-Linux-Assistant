@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,10 +68,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import dev.limits.jarvis.data.SettingsStore
 import dev.limits.jarvis.net.ConnState
 import dev.limits.jarvis.net.LogEntry
 import dev.limits.jarvis.net.LimitsDiscovery
+import dev.limits.jarvis.net.Pairing
 import dev.limits.jarvis.net.WsClient
 import kotlinx.coroutines.delay
 
@@ -83,14 +87,31 @@ val HudText = Color(0xFFE8EAF0)
 
 class MainActivity : ComponentActivity() {
 
+    /** URI limits://pair?... recibida por deep link (cámara del móvil). */
+    private val incomingPairing = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { JarvisScreen() }
+        incomingPairing.value = intent?.dataString
+        setContent {
+            JarvisScreen(
+                pairingUri = incomingPairing,
+                onPairingConsumed = { incomingPairing.value = null },
+            )
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        intent.dataString?.let { incomingPairing.value = it }
     }
 }
 
 @Composable
-fun JarvisScreen() {
+fun JarvisScreen(
+    pairingUri: State<String?>,
+    onPairingConsumed: () -> Unit,
+) {
     val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val session = remember { WsClient(scope) }
@@ -102,6 +123,53 @@ fun JarvisScreen() {
 
     // Endpoint resuelto: manual gana sobre descubrimiento mDNS
     var discovered by remember { mutableStateOf<Pair<String, Int>?>(null) }
+
+    // Emparejamiento: aplica host/puerto/token de un QR y persiste
+    fun applyPairing(raw: String): Boolean {
+        val ep = Pairing.parse(raw)
+        if (ep == null) {
+            // Mostrar lo leído es clave para distinguir «QR equivocado» de
+            // «el lector devolvió basura».
+            session.addLog(
+                "QR no reconocido. Leí: \"${raw.trim().take(70)}\"\n" +
+                        "En el PC: ./bin/limits-qr  (o limits-qr --png)",
+                mine = false, ok = false)
+            return false
+        }
+        val s = SettingsStore.Settings(
+            autoDiscover = false, host = ep.host, port = ep.port, token = ep.token)
+        SettingsStore.save(context, s)
+        settings = s
+        discovered = null
+        session.addLog("emparejado con ${ep.host}:${ep.port}", mine = false, ok = true)
+        return true
+    }
+
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val contents = result.contents
+        if (contents != null) {
+            applyPairing(contents)
+        } else {
+            session.addLog("escaneo cancelado", mine = false)
+        }
+    }
+
+    fun launchScan() {
+        val opts = ScanOptions().apply {
+            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            setPrompt("Escanea el QR de ./bin/limits-qr")
+            setBeepEnabled(false)
+            setOrientationLocked(true)
+        }
+        scanLauncher.launch(opts)
+    }
+
+    // Deep link (QR escaneado con la cámara del móvil)
+    LaunchedEffect(pairingUri.value) {
+        val raw = pairingUri.value ?: return@LaunchedEffect
+        applyPairing(raw)
+        onPairingConsumed()
+    }
 
     // BUGFIX: sin multicast lock muchos móviles NUNCA ven los anuncios mDNS.
     // Defensivo: cualquier rareza del vendor no debe tumbar la app (requiere
@@ -138,11 +206,16 @@ fun JarvisScreen() {
         settings.host, settings.port, settings.token,
         discovered?.first, discovered?.second,
     ) {
-        val manual = !settings.autoDiscover &&
-                settings.host != null && settings.port != null
-        val ep = if (manual) (settings.host!! to settings.port!!) else discovered
+        // IP manual sin puerto → 8765 (antes se ignoraba la IP en silencio)
+        val ep = if (!settings.autoDiscover && settings.host != null) {
+            settings.host!! to (settings.port ?: 8765)
+        } else {
+            discovered
+        }
         if (!tokenMissing && ep != null) {
             session.start(ep.first, ep.second, settings.token.trim())
+        } else if (tokenMissing) {
+            session.stop()
         }
     }
 
@@ -155,8 +228,8 @@ fun JarvisScreen() {
             delay(8000)
             if (discovered == null && settings.token.isNotBlank()) {
                 session.addLog(
-                    "mDNS no encuentra el PC. Toca ⚙, desactiva " +
-                            "'auto' y pon la IP manual.",
+                    "mDNS no encuentra el PC. Toca ⚙, desactiva 'auto' y pon " +
+                            "la IP manual (o vuelve a escanear el QR).",
                     mine = false, ok = false)
                 hinted = true
             }
@@ -170,6 +243,7 @@ fun JarvisScreen() {
     val state by session.state.collectAsState()
     val entries by session.log.collectAsState()
     val processing by session.processing.collectAsState()
+    val speaking by session.speaking.collectAsState()
 
     // Lanzador de reconocimiento de voz nativo
     val speechLauncher = rememberLauncherForActivityResult(
@@ -190,17 +264,35 @@ fun JarvisScreen() {
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            StatusHeader(state)
+            // El escaneo debe estar SIEMPRE visible: el botón grande solo lo
+            // ofrece cuando falta el token, y con uno viejo guardado quedaba
+            // escondido en ⚙ (reportado por el usuario).
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                StatusHeader(state, Modifier.weight(1f))
+                TextButton(onClick = { launchScan() }) {
+                    Text(
+                        "Escanear QR",
+                        color = HudCyan,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
 
             Spacer(Modifier.height(8.dp))
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                Orb(processing = processing, connected = state is ConnState.Connected)
+                Orb(processing = processing, speaking = speaking,
+                    connected = state is ConnState.Connected)
             }
 
             val st = state  // smart cast imposible en propiedades delegadas
             val statusText = when {
-                tokenMissing -> "⚙ Toca el engranaje y pega el token del PC"
+                tokenMissing -> "Sin emparejar: escanea el QR del PC"
                 processing -> "Procesando…"
+                speaking -> "Hablando…"
                 st is ConnState.Connected -> "Escuchando…"
                 st is ConnState.Connecting -> "Conectando…"
                 st is ConnState.Searching -> "Buscando Limits en la red…"
@@ -230,6 +322,10 @@ fun JarvisScreen() {
             ) {
                 Button(
                     onClick = {
+                        if (tokenMissing) {
+                            launchScan()
+                            return@Button
+                        }
                         try {
                             speechLauncher.launch(speechIntent())
                         } catch (_: ActivityNotFoundException) {
@@ -238,14 +334,16 @@ fun JarvisScreen() {
                                 Toast.LENGTH_SHORT).show()
                         }
                     },
-                    enabled = state is ConnState.Connected,
+                    enabled = tokenMissing || state is ConnState.Connected,
                     shape = RoundedCornerShape(24.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = HudCyan.copy(alpha = 0.15f),
                         contentColor = HudCyan),
                     modifier = Modifier.weight(1f).height(52.dp),
                 ) {
-                    Text("Hablar", fontFamily = FontFamily.Monospace, fontSize = 16.sp)
+                    Text(
+                        if (tokenMissing) "Escanear QR" else "Hablar",
+                        fontFamily = FontFamily.Monospace, fontSize = 16.sp)
                 }
                 Spacer(Modifier.width(8.dp))
                 IconButton(onClick = { showConfig = true }) {
@@ -259,6 +357,7 @@ fun JarvisScreen() {
     if (showConfig) {
         ConfigDialog(
             initial = settings,
+            onScan = { showConfig = false; launchScan() },
             onClose = { showConfig = false },
             onSave = {
                 SettingsStore.save(context, it)
@@ -280,18 +379,19 @@ private fun speechIntent() = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).ap
 // ── Componentes HUD ─────────────────────────────────────────────────────────
 
 @Composable
-private fun StatusHeader(state: ConnState) {
+private fun StatusHeader(state: ConnState, modifier: Modifier = Modifier) {
     val (color, label) = when (state) {
         is ConnState.Connected -> HudCyan to "● Conectado — ${state.host}"
         is ConnState.Connecting -> HudViolet to "● Conectando…"
         is ConnState.Searching -> HudViolet.copy(alpha = 0.7f) to "● Buscando servidor…"
         is ConnState.Failed -> HudRed to "● ${state.reason.take(40)}"
     }
-    Text(label, color = color, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+    Text(label, color = color, fontFamily = FontFamily.Monospace, fontSize = 12.sp,
+         modifier = modifier)
 }
 
 @Composable
-private fun Orb(processing: Boolean, connected: Boolean) {
+private fun Orb(processing: Boolean, speaking: Boolean, connected: Boolean) {
     val t = rememberInfiniteTransition(label = "orb")
     val breathe by t.animateFloat(
         0f, 1f,
@@ -304,9 +404,13 @@ private fun Orb(processing: Boolean, connected: Boolean) {
 
     val core = when {
         processing -> HudViolet
+        speaking -> HudCyan
         connected -> HudCyan
         else -> HudRed.copy(alpha = 0.6f)
     }
+    // Hablando el halo queda encendido (no respira): se distingue de
+    // "escuchando" de un vistazo, aunque ambos sean cyan.
+    val glow = if (speaking) 0.92f else breathe
     val sizeDp = 150.dp
 
     Canvas(Modifier.size(sizeDp)) {
@@ -315,20 +419,20 @@ private fun Orb(processing: Boolean, connected: Boolean) {
 
         // halo respirando
         drawCircle(
-            color = core.copy(alpha = 0.08f + breathe * 0.10f),
-            radius = r * (0.95f + breathe * 0.05f),
+            color = core.copy(alpha = 0.08f + glow * 0.10f),
+            radius = r * (0.95f + glow * 0.05f),
             center = c,
         )
         // núcleo
         drawCircle(
-            color = core.copy(alpha = 0.55f + breathe * 0.25f),
+            color = core.copy(alpha = 0.55f + glow * 0.25f),
             radius = r * 0.45f,
             center = c,
             style = Stroke(width = 2.dp.toPx()),
         )
         drawCircle(
             brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                colors = listOf(core.copy(alpha = 0.25f + breathe * 0.2f),
+                colors = listOf(core.copy(alpha = 0.25f + glow * 0.2f),
                                 Color.Transparent),
                 center = c, radius = r * 0.45f),
             radius = r * 0.45f, center = c,
@@ -337,7 +441,11 @@ private fun Orb(processing: Boolean, connected: Boolean) {
         drawArc(
             color = core.copy(alpha = 0.9f),
             startAngle = spin,
-            sweepAngle = if (processing) 90f else 40f,
+            sweepAngle = when {
+                processing -> 90f
+                speaking -> 150f
+                else -> 40f
+            },
             useCenter = false,
             topLeft = Offset(c.x - r * 0.75f, c.y - r * 0.75f),
             size = androidx.compose.ui.geometry.Size(r * 1.5f, r * 1.5f),
@@ -373,6 +481,7 @@ private fun HistoryLog(entries: List<LogEntry>, modifier: Modifier = Modifier) {
 @Composable
 private fun ConfigDialog(
     initial: SettingsStore.Settings,
+    onScan: () -> Unit,
     onClose: () -> Unit,
     onSave: (SettingsStore.Settings) -> Unit,
 ) {
@@ -386,6 +495,13 @@ private fun ConfigDialog(
         title = { Text("Ajustes", color = HudText, fontFamily = FontFamily.Monospace) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onScan) {
+                    Text("Escanear QR del PC", color = HudCyan,
+                         fontFamily = FontFamily.Monospace, fontSize = 14.sp)
+                }
+                Text("En el PC: ./bin/limits-qr",
+                     color = HudText.copy(alpha = 0.6f), fontSize = 11.sp)
+                HorizontalDivider(color = HudText.copy(alpha = 0.15f))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Auto-descubrir (mDNS)", color = HudText, fontSize = 13.sp)
                     Spacer(Modifier.weight(1f))
@@ -395,17 +511,17 @@ private fun ConfigDialog(
                     OutlinedTextField(value = host, onValueChange = { host = it },
                         label = { Text("IP del PC") }, singleLine = true)
                     OutlinedTextField(value = port, onValueChange = { port = it },
-                        label = { Text("Puerto") }, singleLine = true)
+                        label = { Text("Puerto (vacío = 8765)") }, singleLine = true)
                 }
                 OutlinedTextField(value = token, onValueChange = { token = it },
-                    label = { Text("Token (~/.limits/gateway_token)") },
+                    label = { Text("Token (mejor escanea el QR)") },
                     singleLine = true)
             }
         },
         confirmButton = {
             TextButton(onClick = {
                 onSave(SettingsStore.Settings(auto, host.takeIf { it.isNotBlank() },
-                                              port.toIntOrNull(), token))
+                                              port.toIntOrNull(), token.trim()))
             }) { Text("Guardar", color = HudCyan) }
         },
         dismissButton = {

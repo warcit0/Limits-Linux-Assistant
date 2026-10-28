@@ -5,6 +5,7 @@ import subprocess
 import psutil
 from rich.console import Console
 from commands.apps import AppCommands
+from commands.media import pick_player
 
 console = Console()
 
@@ -58,11 +59,41 @@ class SystemCommands:
             stderr=subprocess.DEVNULL,
         )
 
-    def media_control(self, action: str) -> None:
-        """Controla la reproducción multimedia (Spotify, navegadores) via playerctl."""
-        valid_actions = {"play": "play", "pause": "pause", "play-pause": "play-pause", "next": "next", "previous": "previous", "stop": "stop"}
-        cmd = valid_actions.get(action, "play-pause")
-        subprocess.run(["playerctl", cmd], check=False)
+    def media_control(self, action: str = "play-pause",
+                      player: str | None = None) -> str:
+        """Controla la reproducción multimedia vía playerctl.
+
+        `player` fija el reproductor ("spotify", "firefox"…). Sin él se elige
+        el que esté sonando y, si ninguno, Spotify: nunca "el primero", que
+        puede ser una pestaña del navegador.
+
+        Devuelve "" si todo fue bien (se usa el response del LLM) o el motivo
+        del fallo, para no decir "reanudando" cuando no se hizo nada.
+        """
+        valid = {"play", "pause", "play-pause", "next", "previous", "stop"}
+        cmd = action if action in valid else "play-pause"
+
+        target = pick_player(player)
+        if target is None:
+            if player:
+                return f"No encuentro {player} abierto."
+            return "No hay ningún reproductor de música abierto."
+
+        try:
+            res = subprocess.run(
+                ["playerctl", "--player", target, cmd],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            return f"No pude controlar {target}: {e}"
+
+        if res.returncode != 0:
+            detail = [line for line in (res.stderr or "").splitlines() if line.strip()]
+            suffix = f": {detail[-1][:80]}" if detail else "."
+            return f"No pude {cmd} en {target}{suffix}"
+
+        console.print(f"[green]✓ {cmd} → {target}[/green]")
+        return ""
 
     def hyprland_control(self, action: str) -> None:
         """Controles directos del gestor de ventanas Hyprland."""
@@ -141,6 +172,18 @@ class SystemCommands:
             mem = psutil.virtual_memory()
             cpu = psutil.cpu_percent(interval=0.5)
             return f"CPU al {cpu} por ciento. RAM al {mem.percent} por ciento."
+
+    def get_time(self, detail: str = "all") -> str:
+        """Hora/fecha locales (P0-1). Determinista, sin LLM."""
+        from modules.clock import date_line, time_line, weekday_line
+
+        if detail == "time":
+            return time_line()
+        if detail == "date":
+            return date_line()
+        if detail == "weekday":
+            return weekday_line()
+        return f"{date_line()} {time_line()}"
 
     def shutdown(self) -> None:
         """Apaga el sistema. Solo ejecutar tras confirmación."""

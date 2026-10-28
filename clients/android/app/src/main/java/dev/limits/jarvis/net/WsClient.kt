@@ -53,6 +53,7 @@ class WsClient(private val scope: CoroutineScope) {
 
     val state = MutableStateFlow<ConnState>(ConnState.Searching)
     val processing = MutableStateFlow(false)
+    val speaking = MutableStateFlow(false)
     val log = MutableStateFlow<List<LogEntry>>(emptyList())
 
     fun addLog(text: String, mine: Boolean, ok: Boolean? = null) {
@@ -64,9 +65,13 @@ class WsClient(private val scope: CoroutineScope) {
         this.host = host
         this.port = port
         this.token = token
-        if (!running.getAndSet(true) || loopJob == null) {
+        // Relanzar si el loop murió (p.ej. cancelación/cierre inesperado):
+        // antes `loopJob != null` dejaba el cliente muerto para siempre.
+        if (loopJob?.isActive != true) {
+            running.set(true)
             loopJob = reconnectLoop()
         } else if (changed) {
+            state.value = ConnState.Connecting
             ws?.cancel()  // rompe la sesión actual; el loop reconecta al destino nuevo
         }
     }
@@ -74,6 +79,7 @@ class WsClient(private val scope: CoroutineScope) {
     fun stop() {
         running.set(false)
         loopJob?.cancel()
+        loopJob = null
         ws?.close(1000, "bye")
         ws = null
         state.value = ConnState.Searching
@@ -97,41 +103,45 @@ class WsClient(private val scope: CoroutineScope) {
     // ── internos ─────────────────────────────────────────────────────────────
 
     private fun reconnectLoop() = scope.launch(Dispatchers.IO) {
-        while (isActive && running.get()) {
-            val opened = CompletableDeferred<Boolean>()
-            val closed = CompletableDeferred<Unit>()
-            state.value = ConnState.Connecting
+        try {
+            while (isActive && running.get()) {
+                val opened = CompletableDeferred<Boolean>()
+                val closed = CompletableDeferred<Unit>()
+                state.value = ConnState.Connecting
 
-            val request = Request.Builder()
-                .url("ws://$host:$port/ws")
-                .header("Authorization", "Bearer $token")
-                .build()
+                val request = Request.Builder()
+                    .url("ws://$host:$port/ws")
+                    .header("Authorization", "Bearer $token")
+                    .build()
 
-            val session = http.newWebSocket(request, listener(opened, closed))
-            ws = session
+                val session = http.newWebSocket(request, listener(opened, closed))
+                ws = session
 
-            val openResult = try {
-                opened.await()
-            } catch (e: Exception) {
-                break  // scope cancelado en stop()
-            }
-            if (openResult) {
-                processing.value = false
-            }
-            try {
-                closed.await()
-            } catch (e: Exception) {
-                break
-            }
+                val openResult = try {
+                    opened.await()
+                } catch (e: Exception) {
+                    break  // scope cancelado en stop()
+                }
+                if (openResult) {
+                    processing.value = false
+                }
+                try {
+                    closed.await()
+                } catch (e: Exception) {
+                    break
+                }
 
-            if (!running.get()) break
-            if (openResult) {
-                onMain { state.value = ConnState.Connecting }
-                delay(1000)
-            } else {
-                delay(backoffMs * 1000)
-                backoffMs = (backoffMs * 2).coerceAtMost(15)
+                if (!running.get()) break
+                if (openResult) {
+                    onMain { state.value = ConnState.Connecting }
+                    delay(1000)
+                } else {
+                    delay(backoffMs * 1000)
+                    backoffMs = (backoffMs * 2).coerceAtMost(15)
+                }
             }
+        } finally {
+            loopJob = null  // permite que start() vuelva a lanzar el loop
         }
     }
 
@@ -156,10 +166,16 @@ class WsClient(private val scope: CoroutineScope) {
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             opened.complete(false)
+            // 403/101 requerido: token malo (versiones antiguas del server)
+            val reason = when (response?.code) {
+                403, 401 -> "token rechazado — escanea el QR del PC (⚙)"
+                else -> t.message ?: "error de red"
+            }
             if (closed.complete(Unit)) {
                 onMain {
-                    state.value = ConnState.Failed(t.message ?: "error de red")
+                    state.value = ConnState.Failed(reason)
                     processing.value = false
+                    speaking.value = false
                 }
             }
         }
@@ -167,7 +183,12 @@ class WsClient(private val scope: CoroutineScope) {
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             closed.complete(Unit)
             if (code == 4401) {
-                onMain { addLog("token rechazado por el servidor", mine = false, ok = false) }
+                onMain {
+                    state.value = ConnState.Failed(
+                        "token rechazado — escanea el QR del PC (⚙)")
+                    addLog("token rechazado: pulsa ⚙ → «Escanear QR del PC»",
+                        mine = false, ok = false)
+                }
             }
         }
     }
@@ -177,8 +198,31 @@ class WsClient(private val scope: CoroutineScope) {
         when (obj.optString("type")) {
             "welcome" -> Unit  // el estado Connected ya lo refleja
             "pong" -> Unit
-            "event" -> if (obj.optString("kind") == "processing") {
-                onMain { processing.value = true }
+            "error" -> {
+                // UNAUTHORIZED lo reporta onClosed(4401) con acción concreta
+                if (obj.optString("err") != "UNAUTHORIZED") {
+                    onMain {
+                        addLog("! " + obj.optString("msg"), mine = false, ok = false)
+                    }
+                }
+            }
+            "event" -> when (obj.optString("kind")) {
+                "processing" -> onMain {
+                    speaking.value = false
+                    processing.value = true
+                }
+                // F5: el gateway responde primero y habla después. Estos eventos
+                // permiten que el orbe muestre «hablando» sin bloquear el texto.
+                "speaking_started" -> onMain {
+                    processing.value = false
+                    speaking.value = true
+                }
+                "speaking_finished" -> onMain { speaking.value = false }
+                // El PC confirmó el corte (botón o «para» dictado al micro).
+                "stopped" -> onMain {
+                    processing.value = false
+                    speaking.value = false
+                }
             }
             "response" -> {
                 val ok = obj.optBoolean("ok")

@@ -42,4 +42,6 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    // Escáner QR de emparejamiento (sin teclear el token de 64 caracteres)
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }

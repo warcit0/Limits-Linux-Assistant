@@ -17,13 +17,64 @@ from rich.console import Console
 console = Console()
 
 
+# ── MPRIS: selección de reproductor ─────────────────────────────────────────
+# Con varios reproductores abiertos (Spotify + Firefox + integración del
+# navegador) `playerctl` a secas controla el PRIMERO de la lista. Bug real:
+# «reanuda la reproducción de spotify» le daba play a una pestaña de WhatsApp
+# Web en Firefox. Estas dos funciones eligen el reproductor correcto.
+
+def mpris_players() -> list[str]:
+    """Nombres de reproductor que exponen MPRIS (vacío si no hay)."""
+    try:
+        out = subprocess.run(
+            ["playerctl", "-l"], capture_output=True, text=True,
+            timeout=3, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [p for p in out.stdout.split() if p]
+
+
+def _player_status(name: str) -> str:
+    try:
+        out = subprocess.run(
+            ["playerctl", "--player", name, "status"],
+            capture_output=True, text=True, timeout=3, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return out.stdout.strip()
+
+
+def pick_player(prefer: str | None = None) -> str | None:
+    """Elige reproductor: el pedido, si no el que suena, si no Spotify.
+
+    `prefer` es un fragmento: "spotify", "firefox", "plasma"...
+    Devuelve None si no hay ninguno (o si el pedido no está abierto).
+    """
+    players = mpris_players()
+    if not players:
+        return None
+    if prefer:
+        want = prefer.strip().lower()
+        return next((p for p in players if want in p.lower()), None)
+    for p in players:
+        if _player_status(p) == "Playing":
+            return p
+    return next((p for p in players if "spotify" in p.lower()), players[0])
+
+
 class MediaCommands:
 
     def get_current_song(self) -> str:
         """Devuelve el artista y título de la canción que está sonando."""
+        target = pick_player()
+        if target is None:
+            return "No hay ningún reproductor de música abierto."
         try:
             result = subprocess.run(
-                ["playerctl", "metadata", "--format", "{{artist}} - {{title}}"],
+                ["playerctl", "--player", target, "metadata",
+                 "--format", "{{artist}} - {{title}}"],
                 capture_output=True, text=True, timeout=3
             )
             song = result.stdout.strip()

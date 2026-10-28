@@ -120,13 +120,34 @@ class DevCommands:
         except Exception as e:
             return f"Error al consultar Docker: {e}"
 
-    def open_project(self, path: str, editor: str = "nvim") -> None:
+    def _resolve_project(self, path: str) -> str | None:
+        """
+        Acepta ruta, ~/ruta o solo el nombre del proyecto ("limits").
+        Tolera mayúsculas/acentos y busca en las carpetas de proyectos.
+        """
+        from commands.files import _resolve_existing
+
+        direct = _resolve_existing(path)
+        if direct and os.path.isdir(direct):
+            return direct
+        for root in ("~/Proyectos", "~/Work", "~/Projects", "~/Trabajo",
+                     "~/Repos", "~/Documentos", "~/Escritorio"):
+            base = _resolve_existing(root)
+            if not base or not os.path.isdir(base):
+                continue
+            found = _resolve_existing(os.path.join(base, path))
+            if found and os.path.isdir(found):
+                return found
+        return None
+
+    def open_project(self, path: str, editor: str = "nvim") -> str | None:
         """Abre un directorio de proyecto en el editor elegido (code o nvim)."""
-        expanded = os.path.expanduser(path)
-        if not os.path.isdir(expanded):
-            console.print(f"[yellow]Directorio no encontrado: {expanded}[/yellow]")
-            return
-            
+        expanded = self._resolve_project(path)
+        if not expanded:
+            from commands.files import _suggest
+            console.print(f"[yellow]Directorio no encontrado: {path}[/yellow]")
+            return f"No encontré el proyecto {path}.{_suggest(path)}"
+
         if editor == "code":
             subprocess.Popen(["code", expanded], start_new_session=True)
         else:
@@ -134,3 +155,4 @@ class DevCommands:
                 ["ghostty", "-e", "bash", "-c", f"cd '{expanded}' && nvim ."],
                 start_new_session=True,
             )
+        return None
