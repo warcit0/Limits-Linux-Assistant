@@ -30,12 +30,31 @@ except ImportError:
 # Número de mensajes de historial a conservar Y enviar al LLM (deben ser iguales)
 HISTORY_SIZE = 6
 
+# Confianza asumida cuando el modelo omite el campo (qwen3.6-27b lo hace a
+# menudo). No es 1.0 para no mentir en el log, ni <0.5 para no bloquear.
+DEFAULT_CONFIDENCE = 0.9
+
+
+def _normalize_confidence(result: dict) -> dict:
+    """Deja `confidence` como float y con valor cuando el modelo lo omite.
+
+    El executor ejecuta si falta (default 1.0) para no romper órdenes
+    legítimas; normalizar aquí evita que el log diga 0.00 y ejecute.
+    """
+    raw = result.get("confidence")
+    try:
+        result["confidence"] = DEFAULT_CONFIDENCE if raw is None else float(raw)
+    except (TypeError, ValueError):
+        result["confidence"] = DEFAULT_CONFIDENCE
+    return result
+
 
 class LLMEngine:
     def __init__(self, config: Config):
         self.config = config
         self.system_prompt = self._load_system_prompt()
         self.conversation_history: list[dict] = []
+        self._history_loaded = False
 
         # Inicializar cliente Groq si hay API key
         self.groq_client = None
@@ -54,10 +73,49 @@ class LLMEngine:
             with open("prompts/system_prompt.txt", "r", encoding="utf-8") as f:
                 prompt = f.read()
             prompt = prompt.replace("{username}", os.getenv("USER", "usuario"))
+            try:
+                from modules.machine_map import build_machine_map
+                prompt = prompt.replace("{machine_map}", build_machine_map())
+            except Exception:
+                prompt = prompt.replace("{machine_map}", "")
             return prompt
         except FileNotFoundError:
             console.print("[red]⚠️  prompts/system_prompt.txt no encontrado[/red]")
             return "Eres Limits, un asistente de Linux. Responde SIEMPRE en JSON válido."
+
+    def _render_system_prompt(self) -> str:
+        """
+        Sustituye lo que cambia por turno. `{now}` NO puede congelarse al
+        arrancar: un servicio de tres días daría la hora de hace tres días.
+        `{memory}` sale de SQLite y cambia cuando el usuario recuerda/olvida.
+        """
+        try:
+            from modules.clock import now_line
+            now = now_line(self.config.TIMEZONE or None)
+        except Exception:
+            now = ""
+        try:
+            from modules.memory import get_store
+            limit = getattr(self.config, "MEMORY_CONTEXT_BYTES", 600)
+            memory = get_store().facts_block(limit)
+        except Exception:
+            memory = ""
+        return (self.system_prompt
+                .replace("{now}", now)
+                .replace("{memory}", memory or "(nada todavía)"))
+
+    def _hydrate_history(self) -> None:
+        """Al primer turno, recupera la conversación de antes del reinicio."""
+        if self._history_loaded:
+            return
+        self._history_loaded = True
+        try:
+            from modules.memory import get_store
+            for turn in get_store().recent_turns(HISTORY_SIZE):
+                self.conversation_history.append(
+                    {"role": turn["role"], "content": turn["text"]})
+        except Exception:
+            pass
 
     def _check_ollama(self):
         """Verifica que Ollama esté corriendo y el modelo esté disponible."""
@@ -88,7 +146,7 @@ class LLMEngine:
             payload = {
                 "model": self.config.OLLAMA_MODEL,
                 "messages": [
-                    {"role": "system", "content": self.system_prompt},
+                    {"role": "system", "content": self._render_system_prompt()},
                     *self.conversation_history,
                     {"role": "user", "content": user_text},
                 ],
@@ -129,7 +187,7 @@ class LLMEngine:
             return None
 
         messages = [
-            {"role": "system", "content": self.system_prompt},
+            {"role": "system", "content": self._render_system_prompt()},
             *self.conversation_history,
             {"role": "user", "content": user_text},
         ]
@@ -189,6 +247,7 @@ class LLMEngine:
         activa el siguiente.
         """
         console.print(f"[dim]Procesando: '{user_text}'[/dim]")
+        self._hydrate_history()
 
         def _valid(r):
             return r if isinstance(r, dict) else None
@@ -210,6 +269,8 @@ class LLMEngine:
                 "response": "No pude procesar ese comando. ¿Puedes repetirlo?",
                 "confidence": 0.0,
             }
+
+        _normalize_confidence(result)
 
         # Actualizar historial (máx HISTORY_SIZE mensajes = lo mismo que se envía)
         self.conversation_history.append({"role": "user", "content": user_text})

@@ -30,6 +30,10 @@ class Config:
     GEMINI_TIMEOUT: int    = int(os.getenv("GEMINI_TIMEOUT", "120"))
     GEMINI_SESSION: str    = os.getenv("GEMINI_SESSION",
                                        "~/.limits/gemini_session.json")
+    # Research: debajo de esto → fail-loud (no frases Jarvis vacías)
+    GEMINI_MIN_RESEARCH_CHARS: int = int(
+        os.getenv("GEMINI_MIN_RESEARCH_CHARS", "200"))
+
     WHISPER_MODEL: str     = os.getenv("WHISPER_MODEL", "small")
     LANGUAGE: str          = os.getenv("LANGUAGE", "es")
     STT_DEVICE: str        = os.getenv("STT_DEVICE", "cpu")
@@ -40,6 +44,14 @@ class Config:
     VOICE_SPEAKER: int | None = int(os.getenv("VOICE_SPEAKER")) if os.getenv("VOICE_SPEAKER") else None
     WAKE_WORD: str         = os.getenv("WAKE_WORD", "Limits")
     RESPONSE_LANGUAGE: str = os.getenv("RESPONSE_LANGUAGE", "es")
+    # Zona horaria para {now}; vacío = la del sistema
+    TIMEZONE: str          = os.getenv("TIMEZONE", "")
+
+    # ── Barge-in: interrumpir al asistente hablando (P0-4) ───────────────────
+    BARGEIN_ENABLED: bool  = _env_bool("BARGEIN_ENABLED", "true")
+    BARGEIN_KEYWORDS: str  = os.getenv(
+        "BARGEIN_KEYWORDS", "para,cállate,callate,stop,basta,silencio")
+    BARGEIN_MIN_MS: int    = int(os.getenv("BARGEIN_MIN_MS", "350"))
 
     # ── Voz natural ElevenLabs (solo respuestas largas; opt-in) ──────────────
     ELEVENLABS_ENABLED: bool      = _env_bool("ELEVENLABS_ENABLED")
@@ -60,7 +72,42 @@ class Config:
     GATEWAY_MDNS_NAME: str        = os.getenv("GATEWAY_MDNS_NAME", "Limits")
     GATEWAY_SPEAK_LOCAL: bool     = _env_bool("GATEWAY_SPEAK_LOCAL", "true")
     GATEWAY_TOKEN_PATH: str       = os.getenv("GATEWAY_TOKEN_PATH", "")
+    # QR de emparejamiento en la terminal al arrancar (necesita `qrencode`)
+    GATEWAY_SHOW_QR: bool         = _env_bool("GATEWAY_SHOW_QR", "true")
 
-    # ── Lane compuesto desktop_task (tools tipadas + Ollama/Qwen) ────────────
-    # El clasificador strict sigue eligiendo desktop_task; el loop usa Ollama.
+    # ── Memoria persistente (P0-3) ───────────────────────────────────────────
+    # SQLite local; apagarla deja el asistente como antes (sin memoria).
+    MEMORY_ENABLED: bool          = _env_bool("MEMORY_ENABLED", "true")
+    MEMORY_PATH: str              = os.path.expanduser(
+        os.getenv("MEMORY_PATH", "~/.limits/memory.db"))
+    MEMORY_CONTEXT_BYTES: int     = int(os.getenv("MEMORY_CONTEXT_BYTES", "600"))
+    MEMORY_EXPORT_PATH: str       = os.getenv("MEMORY_EXPORT_PATH", "")
+
+    # ── Lane compuesto desktop_task (OpenCode Agent + fallback Ollama) ───────
+    # Router de intents sigue en OLLAMA_MODEL (1.5b). El agent NO usa Groq.
     DESKTOP_AGENT_MAX_STEPS: int  = int(os.getenv("DESKTOP_AGENT_MAX_STEPS", "6"))
+    DESKTOP_AGENT_PROVIDER: str   = os.getenv("DESKTOP_AGENT_PROVIDER", "opencode")
+    DESKTOP_AGENT_FALLBACK: str   = os.getenv("DESKTOP_AGENT_FALLBACK", "ollama")
+    # Modelo Ollama SOLO para el agent (fallback o provider=ollama); no el router
+    DESKTOP_AGENT_MODEL: str      = os.getenv(
+        "DESKTOP_AGENT_MODEL", "qwen2.5:3b-instruct")
+    OPENCODE_API_KEY: str         = os.getenv("OPENCODE_API_KEY", "")
+    OPENCODE_BASE_URL: str        = os.getenv(
+        "OPENCODE_BASE_URL", "https://opencode.ai/inference/openai/v1")
+    OPENCODE_AGENT_MODEL: str     = os.getenv(
+        "OPENCODE_AGENT_MODEL", "opencode/deepseek-v4.1-flash-free")
+
+
+    # ── Búsqueda de archivos (plan focus / muéstramelo) ──────────────────────
+    # Raíces separadas por ':' (default: proyectos + escritorio + descargas).
+    # Vacío o "~" sola en el intent sigue usando estas raíces, no todo $HOME.
+    FILE_SEARCH_ROOT: str = os.getenv(
+        "FILE_SEARCH_ROOT",
+        "~/Proyectos:~/Escritorio:~/Desktop:~/Descargas:~/Downloads:~/Documentos:~/Documents",
+    )
+    # Excludes fd/find (coma). Vacío en env = defaults del código.
+    FILE_SEARCH_EXCLUDES: str = os.getenv(
+        "FILE_SEARCH_EXCLUDES",
+        ".git,node_modules,__pycache__,limits-env,site-packages,.venv,venv,.cache",
+    )
+    FILE_FOCUS_DELAY_S: float = float(os.getenv("FILE_FOCUS_DELAY_S", "0.55"))

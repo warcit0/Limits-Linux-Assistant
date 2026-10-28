@@ -1,0 +1,14 @@
+[
+  {
+    "goal": "busca foto.png en el tmp y ábrelo",
+    "note": "En tests reales se scripta search_and_open → done; E2E OpenCode opcional"
+  },
+  {
+    "goal": "busca el PDF de impuestos en Descargas y cópialo al escritorio",
+    "expected_first_tools": ["search_file", "ask_user", "copy_file", "done"]
+  },
+  {
+    "goal": "lista la carpeta Descargas",
+    "expected_first_tools": ["list_directory", "done"]
+  }
+]

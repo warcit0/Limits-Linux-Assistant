@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# limits-qr — muestra el QR de emparejamiento de la app Android.
+# Uso: limits-qr [--rotate] [--port N] [--no-qr]
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec "$ROOT/limits-env/bin/python" "$ROOT/scripts/show_pairing.py" "$@"

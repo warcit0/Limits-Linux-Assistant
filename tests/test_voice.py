@@ -14,6 +14,14 @@ from modules.tts_elevenlabs import TTSUnavailable, ElevenLabsEngine
 from modules.voice_utils import clean_for_voice, split_for_voice
 
 
+def _fake_proc():
+    """Popen falso que termina al primer poll()."""
+    proc = mock.MagicMock()
+    proc.poll.return_value = 0
+    proc.stdin = None
+    return proc
+
+
 # ── Utilidades de texto ──────────────────────────────────────────────────────
 
 class TestCleanForVoice(unittest.TestCase):
@@ -74,12 +82,12 @@ class FakeEngine:
         self.name = name
         self.spoken = []
 
-    def speak(self, text):
+    def speak(self, text, stop_event=None):
         self.spoken.append(text)
 
 
 class FailEngine(FakeEngine):
-    def speak(self, text):
+    def speak(self, text, stop_event=None):
         raise RuntimeError("boom")
 
 
@@ -163,17 +171,19 @@ class TestElevenLabsEngine(unittest.TestCase):
             cache_dir=str(tmp), use_cache=use_cache,
         )
 
-    @mock.patch("modules.tts_elevenlabs.subprocess.run")
-    def test_sintetiza_y_reproduce_mpv(self, run):
+    @mock.patch("modules.tts_elevenlabs.subprocess.Popen")
+    def test_sintetiza_y_reproduce_mpv(self, popen):
+        popen.return_value = _fake_proc()
         with tempfile.TemporaryDirectory() as tmp:
             eng = self._engine(tmp)
             with mock.patch.object(eng._session, "post", return_value=_resp()):
                 eng.speak("Frase de prueba suficientemente larga para hablar. " * 3)
-            run.assert_called_once()
-            self.assertIn("mpv", run.call_args.args[0])
+            popen.assert_called_once()
+            self.assertIn("mpv", popen.call_args.args[0])
 
-    @mock.patch("modules.tts_elevenlabs.subprocess.run")
-    def test_cache_evita_segunda_peticion(self, run):
+    @mock.patch("modules.tts_elevenlabs.subprocess.Popen")
+    def test_cache_evita_segunda_peticion(self, popen):
+        popen.return_value = _fake_proc()
         with tempfile.TemporaryDirectory() as tmp:
             eng = self._engine(tmp)
             with mock.patch.object(eng._session, "post",
@@ -182,15 +192,15 @@ class TestElevenLabsEngine(unittest.TestCase):
                 eng.speak("Repetido repetido repetido repetido. " * 4)
             self.assertEqual(post.call_count, 1)
 
-    @mock.patch("modules.tts_elevenlabs.subprocess.run")
-    def test_fallback_reproductor_ffplay(self, run):
-        run.side_effect = [FileNotFoundError, None]
+    @mock.patch("modules.tts_elevenlabs.subprocess.Popen")
+    def test_fallback_reproductor_ffplay(self, popen):
+        popen.side_effect = [FileNotFoundError, _fake_proc()]
         with tempfile.TemporaryDirectory() as tmp:
             eng = self._engine(tmp, use_cache=False)
             with mock.patch.object(eng._session, "post", return_value=_resp()):
                 eng.speak("Probando reproductor alternativo. " * 5)
-            self.assertEqual(run.call_count, 2)
-            self.assertIn("ffplay", run.call_args.args[0])
+            self.assertEqual(popen.call_count, 2)
+            self.assertIn("ffplay", popen.call_args.args[0])
 
     def test_errores_http_elevan_ttsunavailable(self):
         with tempfile.TemporaryDirectory() as tmp:

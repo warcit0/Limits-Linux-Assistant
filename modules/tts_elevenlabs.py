@@ -68,16 +68,16 @@ class ElevenLabsEngine:
     # Público
     # ──────────────────────────────────────────────────────────────────────
 
-    def speak(self, text: str) -> None:
-        """Sintetiza (o toma de cache) y reproduce. Eleva TTSUnavailable si falla."""
+    def speak(self, text: str, source: str = "system", stop_event=None) -> str:
+        """Sintetiza (o toma de cache) y reproduce. Devuelve "ok"/"interrupted"."""
         text = clean_for_voice(text or "")
         if not text.strip():
-            return
+            return "ok"
 
         cached = self._cache_lookup(text) if self.use_cache else None
         if cached is not None:
-            self._play(cached, est_seconds=self._est_seconds(text))
-            return
+            return self._play(cached, est_seconds=self._est_seconds(text),
+                              stop_event=stop_event)
 
         audio = self._synthesize(text)
 
@@ -90,7 +90,8 @@ class ElevenLabsEngine:
             path.write_bytes(audio)
 
         try:
-            self._play(path, est_seconds=self._est_seconds(text))
+            return self._play(path, est_seconds=self._est_seconds(text),
+                              stop_event=stop_event)
         finally:
             if not self.use_cache:
                 path.unlink(missing_ok=True)
@@ -185,24 +186,27 @@ class ElevenLabsEngine:
             raise TTSUnavailable("respuesta sin audio")
         return r.content
 
-    def _play(self, path: Path, est_seconds: float) -> None:
+    def _play(self, path: Path, est_seconds: float, stop_event=None) -> str:
         players = [
             ["mpv", "--no-video", "--terminal=no", "--really-quiet"],
             ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet"],
         ]
+        from modules.tts import _register, _unregister, wait_with_stop
         for cmd in players:
             try:
-                subprocess.run(
+                proc = subprocess.Popen(
                     cmd + [str(path)],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    timeout=est_seconds,
-                    check=False,
                 )
-                return
             except FileNotFoundError:
                 continue
-            except subprocess.TimeoutExpired:
-                console.print("[yellow]Reproducción de audio excedió el timeout.[/yellow]")
-                return
+            _register(proc)
+            try:
+                if wait_with_stop(proc, stop_event, timeout=est_seconds):
+                    console.print("[yellow]⏹ TTS interrumpido.[/yellow]")
+                    return "interrupted"
+                return "ok"
+            finally:
+                _unregister(proc)
         raise TTSUnavailable("sin reproductor mpv/ffplay disponible")

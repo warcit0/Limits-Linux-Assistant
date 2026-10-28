@@ -86,6 +86,8 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                  speak: bool = True) -> str:
         if not gate.acquire(wait_timeout):
             raise RemoteBusy()
+        response_text = ""
+        intent = None
         try:
             # ── Ruta conversacional determinista ─────────────────────────────
             if gemini is not None:
@@ -97,6 +99,7 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                     log.debug(f"INPUT(gemini): {user_input}")
                     response_text = gemini.chat(
                         user_input, research=(mode == "research"))
+                    intent = f"gemini_{mode}"
                     log.info(f"turno gemini completado | chars={len(response_text)}")
                     log.debug(f"RESPONSE(gemini): {response_text}")
                     if speak:
@@ -116,7 +119,47 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                     "confidence": 1.0,
                 }
                 response_text = executor.execute(parsed)
+                intent = "desktop_task"
                 log.info("turno desktop_task completado")
+                if speak:
+                    tts.speak(response_text)
+                return response_text
+
+            # ── Rutas de un solo dato (hora/fecha), sin LLM ─────────────────
+            from modules.quick_routes import match_quick_route
+            quick = match_quick_route(user_input)
+            if quick:
+                log.info("turno quick_route | action=%s", quick["action"])
+                response_text = executor.execute(quick)
+                intent = quick.get("intent")
+                log.debug(f"RESPONSE(quick): {response_text}")
+                if speak:
+                    tts.speak(response_text)
+                return response_text
+
+            # ── Memoria explícita (recuerda / olvida / qué sabes) ────────────
+            from modules.memory_router import match_memory_route
+            memory_route = match_memory_route(user_input)
+            if memory_route:
+                log.info("turno memoria | action=%s", memory_route["action"])
+                response_text = executor.execute(memory_route)
+                intent = memory_route.get("intent")
+                log.debug(f"RESPONSE(memoria): {response_text}")
+                if speak:
+                    tts.speak(response_text)
+                return response_text
+
+            # ── Ruta determinista de archivos (carpeta explícita) ────────────
+            # El LLM inventa rutas ("/Proyectos", "work") aunque tenga el mapa
+            # del equipo. "lista la carpeta X" es mecánico: se resuelve aquí.
+            from modules.file_router import match_file_route
+            file_route = match_file_route(user_input)
+            if file_route:
+                log.info("turno archivos vía router determinista | "
+                         f"action={file_route['action']}")
+                response_text = executor.execute(file_route)
+                intent = file_route.get("intent")
+                log.debug(f"RESPONSE(archivos): {response_text}")
                 if speak:
                     tts.speak(response_text)
                 return response_text
@@ -125,6 +168,7 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
             log.debug(f"INPUT: {user_input}")
             parsed = llm.process(user_input)
             response_text = executor.execute(parsed)
+            intent = parsed.get("intent")
             log.info(f"turno procesado | intent={parsed.get('intent')} "
                      f"confidence={parsed.get('confidence', 0):.2f}")
             log.debug(f"RESPONSE: {response_text}")
@@ -132,6 +176,14 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                 tts.speak(response_text)
             return response_text
         finally:
+            if response_text:
+                try:
+                    from modules.memory import get_store
+                    store = get_store()
+                    store.log_turn("user", user_input, intent=intent)
+                    store.log_turn("assistant", response_text, intent=intent)
+                except Exception:
+                    pass
             gate.release()
     return pipeline
 
@@ -148,16 +200,39 @@ def main():
 
     console.print("\n[bold]Iniciando módulos...[/bold]")
     llm      = LLMEngine(config)
-    from modules.desktop_agent import DesktopAgent
+    from modules.desktop_agent import DesktopAgent, load_opencode_api_key
+    oc_key = load_opencode_api_key(config.OPENCODE_API_KEY)
     desktop_agent = DesktopAgent(
         files=None,  # CommandExecutor re-bind a self.files
         ollama_url=config.OLLAMA_URL,
-        ollama_model=config.OLLAMA_MODEL,
+        ollama_model=config.DESKTOP_AGENT_MODEL,
         keep_alive=config.OLLAMA_KEEP_ALIVE,
         num_ctx=config.OLLAMA_NUM_CTX,
         max_steps=config.DESKTOP_AGENT_MAX_STEPS,
+        provider=config.DESKTOP_AGENT_PROVIDER,
+        opencode_api_key=oc_key,
+        opencode_base_url=config.OPENCODE_BASE_URL,
+        opencode_model=config.OPENCODE_AGENT_MODEL,
+        fallback=config.DESKTOP_AGENT_FALLBACK,
     )
+    if config.DESKTOP_AGENT_PROVIDER == "opencode":
+        if oc_key:
+            console.print("[green]✓ Desktop agent: OpenCode "
+                          f"{config.OPENCODE_AGENT_MODEL}[/green] "
+                          f"[dim](fallback {config.DESKTOP_AGENT_FALLBACK})[/dim]")
+        else:
+            console.print("[yellow]Desktop agent: sin OPENCODE_API_KEY — "
+                          f"usará fallback {config.DESKTOP_AGENT_FALLBACK}"
+                          f" ({config.DESKTOP_AGENT_MODEL})[/yellow]")
+    else:
+        console.print(f"[dim]Desktop agent: {config.DESKTOP_AGENT_PROVIDER} "
+                      f"/ {config.DESKTOP_AGENT_MODEL}[/dim]")
     executor = CommandExecutor(desktop_agent=desktop_agent)
+    executor.configure_files(
+        search_roots=config.FILE_SEARCH_ROOT,
+        search_excludes=config.FILE_SEARCH_EXCLUDES,
+        focus_delay_s=config.FILE_FOCUS_DELAY_S,
+    )
 
     # ── Voz dual: Piper (corto/sistema) + ElevenLabs (largo/natural, opt-in) ──
     piper = TTSEngine(
@@ -202,6 +277,20 @@ def main():
             device=config.STT_DEVICE,
         )
 
+    # ── Barge-in: TTS + escucha simultánea (P0-4) ───────────────────────────
+    from modules.speech_controller import SpeechController
+    speech = SpeechController(
+        tts,
+        stt=stt,
+        enabled=config.BARGEIN_ENABLED,
+        keywords=[k.strip() for k in config.BARGEIN_KEYWORDS.split(",")
+                  if k.strip()],
+        min_ms=config.BARGEIN_MIN_MS,
+    )
+    if speech.enabled:
+        console.print("[green]✓ Barge-in listo[/green] "
+                      "[dim](di «para» mientras hablo)[/dim]")
+
     # ── Pipeline compartido (voz local + gateway móvil) ──────────────────────
     gate = TurnGate()
 
@@ -214,6 +303,7 @@ def main():
             timeout_s=config.GEMINI_TIMEOUT,
             session_file=(os.path.expanduser(config.GEMINI_SESSION)
                           if config.GEMINI_SESSION else None),
+            min_research_chars=config.GEMINI_MIN_RESEARCH_CHARS,
         )
         if candidato.available():
             gemini_bridge = candidato
@@ -224,7 +314,7 @@ def main():
             console.print(f"[yellow]GEMINI_BIN no encontrado: "
                           f"{config.GEMINI_BIN} — cerebro desactivado[/yellow]")
 
-    pipeline = make_pipeline(llm, executor, tts, gate, gemini=gemini_bridge)
+    pipeline = make_pipeline(llm, executor, speech, gate, gemini=gemini_bridge)
 
     # ── Gateway móvil: el texto remoto entra al MISMO pipeline (opt-in) ─────
     gateway = None
@@ -239,11 +329,22 @@ def main():
                 token_path=config.GATEWAY_TOKEN_PATH or None,
                 app_version=__version__,
                 speak_remote=config.GATEWAY_SPEAK_LOCAL,
+                speak_fn=speech.speak,
+                stop_fn=speech.stop,
+                # El micro del móvil dicta «para» como texto: eso también corta.
+                stop_words=[k.strip() for k in config.BARGEIN_KEYWORDS.split(",")
+                            if k.strip()],
             )
             gw_info = gateway.start()
             console.print(f"[green]✓ Gateway móvil:[/green] "
-                          f"ws://{gw_info['ip']}:{gw_info['port']}/ws "
-                          f"[dim](token: {config.GATEWAY_TOKEN_PATH or '~/.limits/gateway_token'})[/dim]")
+                          f"ws://{gw_info['ip']}:{gw_info['port']}/ws")
+            if config.GATEWAY_SHOW_QR:
+                # print() plano: el QR trae secuencias ANSI que rich alteraría
+                gateway.print_pairing()
+            else:
+                console.print(f"[dim]   token: "
+                              f"{config.GATEWAY_TOKEN_PATH or '~/.limits/gateway_token'}"
+                              f" (QR: `limits-qr`)[/dim]")
             # Los archivos locales a castear salen por URLs firmadas del gateway
             executor.tv.media_url_factory = gateway.make_media_url
         except OSError as e:
@@ -252,7 +353,7 @@ def main():
             gateway = None
 
     console.print("\n[bold green]✓ Limits listo.[/bold green]\n")
-    tts.speak("Limits listo. ¿En qué te puedo ayudar?")
+    speech.speak("Limits listo. ¿En qué te puedo ayudar?")
 
     global _shutdown_requested
 
@@ -303,7 +404,7 @@ def main():
                     user_input = user_input.lstrip(" ,.¿?¡!").strip()
 
                 if not user_input:
-                    tts.speak("¿Sí?")
+                    speech.speak("¿Sí?")
                     user_input = stt.listen_and_transcribe()
 
                 # Salida por voz
@@ -312,6 +413,12 @@ def main():
 
             if user_input:
                 pipeline(user_input)
+                # Barge-in: si interrumpiste con un comando, se encadena.
+                while speech.pending_text:
+                    follow = speech.pending_text
+                    speech.pending_text = ""
+                    console.print(f"[dim]Turno encadenado: {follow}[/dim]")
+                    pipeline(follow)
 
             if args.once:
                 break
@@ -321,7 +428,7 @@ def main():
     finally:
         if gateway:
             gateway.stop()
-        tts.speak("Hasta luego.")
+        speech.speak("Hasta luego.")
         log.info("Limits apagado.")
         if stt:
             stt.cleanup()

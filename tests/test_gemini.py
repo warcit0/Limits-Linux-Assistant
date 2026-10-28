@@ -10,7 +10,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from modules.gemini import GeminiBridge, match_gemini_route
+from modules.gemini import (
+    GeminiBridge,
+    _is_hollow_research,
+    match_gemini_route,
+)
 
 
 class TestRouterPalabrasClave(unittest.TestCase):
@@ -39,6 +43,25 @@ class TestRouterPalabrasClave(unittest.TestCase):
                   "pon cumbia en spotify", ""):
             self.assertIsNone(match_gemini_route(t), t)
 
+    def test_acentos_y_raices(self):
+        """Bug real: «investígame» (con tilde) no coincidía y caía a Google."""
+        for t in ("investígame sobre el kernel 6.12",
+                  "investigame lo de Hyprland",
+                  "averigua el precio del dólar",
+                  "indaga sobre Wayland",
+                  "búscame información sobre el Ryzen 9000",
+                  "buscame informacion de la nueva GPU",
+                  "googlea precios de SSD",
+                  "¿qué se sabe de la RTX 50?"):
+            self.assertEqual(match_gemini_route(t)[0], "research", t)
+
+    def test_no_confundir_informacion_con_investigacion(self):
+        for t in ("abre google",
+                  "muéstrame la información del sistema",
+                  "información del disco",
+                  "busca el archivo config.py"):
+            self.assertIsNone(match_gemini_route(t), t)
+
     def test_texto_viaja_verbatim(self):
         _, q = match_gemini_route("investiga los últimos avances de fusión nuclear")
         self.assertEqual(q, "investiga los últimos avances de fusión nuclear")
@@ -47,6 +70,7 @@ class TestRouterPalabrasClave(unittest.TestCase):
 def _proc(stdout: str) -> mock.Mock:
     p = mock.Mock()
     p.stdout = stdout
+    p.stderr = ""
     p.returncode = 0
     return p
 
@@ -117,6 +141,59 @@ class TestGeminiBridge(unittest.TestCase):
             art.write_text("", encoding="utf-8")
             run.return_value = _proc(json.dumps({"ok": True, "f": str(art)}))
             self.assertIn("vacía", self._bridge(tmp).chat("hola"))
+
+    @mock.patch("modules.gemini.subprocess.run")
+    def test_not_signed_in_fail_loud(self, run):
+        with tempfile.TemporaryDirectory() as tmp:
+            run.return_value = _proc(json.dumps({
+                "ok": False, "err": "NOT_SIGNED_IN",
+                "msg": "Gemini Web no está autenticado",
+            }))
+            out = self._bridge(tmp).chat("investiga X", research=True)
+            self.assertIn("gemdev login", out.lower())
+            self.assertIn("no pude investigar", out.lower())
+
+    @mock.patch("modules.gemini.subprocess.run")
+    def test_research_hueca_tipo_jarvis_fail_loud(self, run):
+        with tempfile.TemporaryDirectory() as tmp:
+            art = Path(tmp) / "h.md"
+            art.write_text("Te comento la situación, warcito.", encoding="utf-8")
+            run.return_value = _proc(json.dumps({"ok": True, "f": str(art)}))
+            out = self._bridge(tmp, min_research_chars=200).chat(
+                "investiga Windows 12", research=True)
+            self.assertIn("no pude investigar", out.lower())
+            self.assertNotIn("te comento la situación", out.lower())
+
+    @mock.patch("modules.gemini.subprocess.run")
+    def test_research_sustancial_pasa(self, run):
+        long = (
+            "Según Reuters no existe un lanzamiento oficial de Windows 12 en 2026. "
+            "Microsoft sigue en el ciclo de Windows 11 con actualizaciones anuales. "
+            "La BBC y The Verge coinciden en que los rumores de Windows 12 fueron "
+            "malinterpretaciones del programa Windows Next. En cifras, más del "
+            "setenta por ciento del mercado de escritorio sigue en Once según "
+            "StatCounter. Si aparece un sucesor, Microsoft lo anunciaría en un "
+            "evento Build o Surface con fechas concretas, no por filtraciones "
+            "sin fuentes. Eso es lo que hay hoy contrastado."
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            art = Path(tmp) / "ok.md"
+            art.write_text(long, encoding="utf-8")
+            run.return_value = _proc(json.dumps({"ok": True, "f": str(art)}))
+            out = self._bridge(tmp, min_research_chars=200).chat(
+                "investiga Windows 12", research=True)
+            self.assertIn("Windows", out)
+            self.assertGreaterEqual(len(out), 200)
+
+
+class TestHollowHelper(unittest.TestCase):
+    def test_opener_corto_es_hueco(self):
+        self.assertTrue(_is_hollow_research(
+            "Te comento la situación, warcito.", 200))
+
+    def test_texto_largo_no_es_hueco(self):
+        text = ("Según Reuters " + ("dato concreto sobre el tema. " * 20))
+        self.assertFalse(_is_hollow_research(text, 200))
 
 
 if __name__ == "__main__":

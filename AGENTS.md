@@ -25,24 +25,20 @@ limits --text            # equivalente a ./limits-env/bin/python main.py --text
 # de micrófono/puerto 8765). Control del servicio: limits-service start|stop|
 # restart|status|logs
 
-# Verificar sintaxis de todos los módulos (equivalente a lint mínimo actual)
+# Checklist pre-commit / pre-release (sin Groq en el router)
 ./limits-env/bin/python -m py_compile main.py config.py version.py \
     modules/*.py commands/*.py
-
-# Probar el executor sin tocar el sistema (mockear handlers en action_map)
-./limits-env/bin/python -c "
-from modules.executor import CommandExecutor
-e = CommandExecutor()
-e.action_map['shutdown'] = lambda: 'mock'
-print(e.execute({'action':'shutdown','params':{},'response':'x','confidence':0.99}))
-"
+./limits-env/bin/python -m unittest discover -s tests -v
+./bin/measure-router --min-accuracy 0.90   # requiere Ollama; fuerza local
 
 # Tras cambiar código o .env, si el servicio está activo:
 systemctl --user restart limits.service
 ```
 
-No hay suite de tests ni CI todavía (pendiente, ver CHANGELOG). Antes de cada commit:
-`py_compile` de todo + prueba manual en modo texto.
+Prompt slim: `prompts/system_prompt.txt` ≤ ~6KB en crudo; renderizado ≤ 8400 B
+(incluye hasta 600 B de `{memory}`). 1 action nueva → ≤1 few-shot.
+Corpus: `tests/corpus_ordenes.json` (≥25). Resultado: `logs/measure_router_last.json`.
+Docs: `docs/plan-prompt-corpus-local.md`.
 
 ## 3. Estructura y responsabilidades
 
@@ -51,18 +47,24 @@ No hay suite de tests ni CI todavía (pendiente, ver CHANGELOG). Antes de cada c
 | `main.py` | Orquestador: argparse (`--text`, `--once`), SIGTERM graceful, wake word inline, loop |
 | `config.py` | Único punto que lee `.env`. Añade aquí toda variable nueva |
 | `version.py` | Metadatos de versión. Única fuente de verdad para versionar |
-| `modules/llm.py` | Groq (prioritario) → Ollama (fallback). Historial de 6 mensajes. Devuelve dict validado o intent `unknown` |
+| `modules/llm.py` | Groq (prioritario) → Ollama (fallback). Historial de 6 mensajes. Devuelve dict validado o intent `unknown`. Renderiza `{now}` por turno |
 | `modules/stt.py` | PyAudio + webrtcvad (corte: 900ms silencio / máx 10s) + faster-whisper int8 |
-| `modules/tts.py` | piper-tts → pipe → aplay 22050Hz S16LE; fallback espeak-ng |
+| `modules/tts.py` | piper-tts → pipe → aplay 22050Hz S16LE; fallback espeak-ng. `speak()` devuelve `ok|interrupted`; `pause_all`/`resume_all` (SIGSTOP/SIGCONT) |
+| `modules/speech_controller.py` | Barge-in: VAD mientras habla, pausa/reanuda si es eco, palabras clave («para») y `pending_text` para encadenar |
 | `modules/executor.py` | `action_map` action→handler, cortafuegos de tipos/params, flujo confirm/cancel con estado |
-| `modules/desktop_agent.py` | Lane compuesto `desktop_task`: loop tools tipadas + Ollama/Qwen (sin shell) |
+| `modules/clock.py` | Fuente única de verdad temporal: `now_line`/`time_line`/`date_line`/`weekday_line`/`parse_duration` (sin `locale`) |
+| `modules/quick_routes.py` | Rutas deterministas de un dato (hora/fecha) **antes** del LLM; excluye horarios ajenos («a qué hora abre…») |
+| `modules/memory.py` | Hechos/notas/episodios en SQLite (`~/.limits/memory.db`, WAL + FTS5, 600). Singleton `get_store()`; si falla, `enabled=False` y todo sigue |
+| `modules/memory_router.py` | «recuerda que…», «olvida…», «qué sabes de mí», «cuál es mi X» sin LLM |
+| `modules/file_router.py` | Ruta determinista de «lista/abre la carpeta X» antes del LLM |
+| `modules/desktop_agent.py` | Lane `desktop_task`: OpenCode Flash agent + fallback Ollama 3b; path guard |
 | `modules/gateway.py` | Gateway WebSocket móvil (`GATEWAY_ENABLED`): token pairing, lock de turno vía pipeline compartido, media firmada para casting |
 | `modules/listener.py` | ⚠️ NO USADO — versión threaded futura del wake word |
 | `commands/apps.py` | Abrir/cerrar apps (`APP_MAP`, `PROCESS_ALIASES`) |
 | `commands/system.py` | Volumen/brillo/lock/info/shutdown/hyprland (`WINDOW_CLASS_MAP`) |
 | `commands/web.py` | Búsquedas (raspa DDG Lite para resumen hablado) y URLs |
 | `commands/dev.py` | Terminal con allowlist, git/docker status, abrir proyectos |
-| `commands/files.py` | fd/find, search_and_open, reveal (Thunar), copy/move/rename, listar |
+| `commands/files.py` | fd/find + excludes, search_and_open, reveal/open_last, foco Hyprland, copy/move/rename |
 | `commands/media.py` | Spotify URI, YouTube mpv+yt-dlp, letras lyrics.ovh, canción actual |
 | `commands/tv.py` | Casting a Chromecast/Android TV: discover/list, cast (current/query), control |
 | `commands/custom.py` | Plantilla vacía para comandos del usuario |
@@ -71,12 +73,15 @@ No hay suite de tests ni CI todavía (pendiente, ver CHANGELOG). Antes de cada c
 | `tests/corpus_ordenes.json` | Frases → action esperada; medir con `./bin/measure-router` |
 | `docs/` | Diseño de integraciones; `catalogo-ordenes-audit.md`, `plan-desktop-task.md` |
 | `docs/track-redactar-apps.md` | APLAZADO — tipar/redactar en apps (adapters UI), no mezclar con el router |
-| `setup-service.sh` | Instala `~/.config/systemd/user/limits.service` |
+| `setup-service.sh` | Instala/actualiza `~/.config/systemd/user/limits.service` (idempotente: enable + linger) |
+| `scripts/healthcheck.py` · `bin/limits-health` | Salud: servicio, puerto, handshake WS autenticado y micrófono. Sale 1 si falla algo crítico |
+| `bin/limits-qr` | QR de emparejamiento del móvil (`--rotate` revoca el token); no arranca Limits |
 
 ## 4. Flujo de datos de un turno
 
 ```
 main.run_pipeline(user_input)
+  → quick_routes (hora/fecha) · memory_router (recuerda/olvida) · file_router   # sin LLM
   → llm.process(text)            # dict {intent, action, params, response, confidence} o unknown
   → executor.execute(parsed)     # string para hablar
       ├── params.pop("requires_confirmation")
@@ -87,6 +92,7 @@ main.run_pipeline(user_input)
       └── _run(): filtra params por inspect.signature(handler), ejecuta,
           devuelve "{response} {resultado}" si el handler devolvió algo útil
   → tts.speak(respuesta)
+  → memoria: episodio user/assistant + `{memory}` refrescado en el próximo turno
 ```
 
 ## 5. Reglas críticas de seguridad (NO romper)
@@ -130,11 +136,37 @@ main.run_pipeline(user_input)
   los existentes.
 - `HISTORY_SIZE` (6) controla cuántos turnos se conservan Y se envían.
 
+### Memoria persistente (P0-3)
+- `get_store()` es un singleton perezoso: no crear conexiones por turno y no
+  tocar disco al importar (el CLI y el servicio conviven por WAL).
+- Solo se guarda lo **explícito** del usuario (router determinista); extraer
+  hechos con LLM queda para v2 y siempre con confirmación.
+- `{memory}` se renderiza por turno (≤600 B) y las notas se muestran sin hash.
+- Acciones: `remember`, `forget`, `memory_list`, `memory_recall`, `memory_stats`.
+- La redacción de secretos ocurre en escritura (`redact()`), no al leer.
+
+### Barge-in (P0-4)
+- `SpeechController` envuelve al `VoiceRouter`: no llamar `tts.speak` directamente
+  desde `main` (rompe la interrupción).
+- Flujo: VAD (ventana deslizante, ~1/4 de tramas) → `pause_all()` → transcribir →
+  eco/ruido → `resume_all()`; comando → `stop_event` + `pending_text`.
+- El eco se comprueba **antes** de las palabras clave, pero una interjección de
+  1-2 palabras nunca se considera eco (si no, «para» no cortaría nunca).
+- `_terminate` manda SIGCONT antes de SIGTERM: un proceso pausado no atiende
+  SIGTERM hasta reanudarse.
+- Desde el móvil hay dos vías de corte, ambas sin esperar al turno: `{"type":
+  "stop"}` y un `command` de **una sola palabra** de `BARGEIN_KEYWORDS` (el
+  micro de la app usa el reconocedor de Android y manda texto). Frases como
+  «para la música» no cuentan: son comandos.
+- Traza: `LIMITS_BARGEIN_DEBUG=1` (y `LIMITS_BARGEIN_VAD_MODE`, 0-3).
+
 ### Lane compuesto desktop_task
-- Frases multi-paso de archivos → action `desktop_task` + `params.goal` verbatim.
-- Loop en `modules/desktop_agent.py` (Ollama/Qwen, máx `DESKTOP_AGENT_MAX_STEPS`).
-- Solo tools tipadas de `FileCommands` + propose_move/rename. Sin shell.
-- Detalle: `docs/plan-desktop-task.md`. Redactar-en-apps: `docs/track-redactar-apps.md`.
+- Frases multi-paso → `desktop_task` + `params.goal` verbatim (o keywords).
+- Agent: OpenCode `OPENCODE_AGENT_MODEL` (default deepseek-v4.1-flash-free);
+  fallback Ollama `DESKTOP_AGENT_MODEL` (3b). Router intents = `OLLAMA_MODEL` (1.5b).
+- Sin Groq ni Big Pickle. Paths locales van al cloud si provider=opencode.
+- Path guard: open/copy solo con rutas observadas en el turno.
+- Docs: `docs/plan-desktop-task-calidad.md`. Tipar apps: `docs/plan-redactar-apps.md`.
 
 ### Integración Gemini conversacional (F1 implementada)
 - **Despausada 2026-08-25**: `modules/gemini.py` implementa el puente por
@@ -146,9 +178,12 @@ main.run_pipeline(user_input)
   casos sin palabra clave. Memoria de conversación vía `-c GEMINI_SESSION`.
 - Regla dura VIGENTE: la salida de Gemini va SOLO a TTS/log, jamás al
   `action_map` ni al executor (bloquea prompt injection desde contenido web).
-- Contrato verificado empíricamente: `chat -t N --json -c FILE` → puntero JSON
-  en última línea stdout, texto en archivo `f`. NUESTRO puente siempre pasa
-  `-t` (sin él su CLI crashea).
+- Research fail-loud: si `NOT_SIGNED_IN`, artefacto vacío o respuesta hueca
+  (&lt; `GEMINI_MIN_RESEARCH_CHARS`, default 200) → frase explícita (pide
+  `gemdev login`); nunca openers Jarvis vacíos. Ver
+  `docs/plan-gemini-research-calidad.md`.
+- Contrato: `chat -t N --json -c FILE` → puntero JSON en última línea stdout,
+  texto en archivo `f`. Siempre pasar `-t`.
 
 ### Control remoto desde Android (F1–F2 implementados, app pendiente)
 - Diseño en `docs/plan-control-remoto-android.md`. Implementado: gateway
@@ -160,6 +195,13 @@ main.run_pipeline(user_input)
   de pairing obligatorio (`~/.limits/gateway_token`, chmod 600); el lock de turno
   vive en `main.make_pipeline` y serializa voz local vs móvil (nunca intercalar
   salidas); archivos locales solo por URLs firmadas del gateway.
+- **Emparejamiento sin teclear (2026-10-28):** el gateway imprime un QR
+  (`GATEWAY_SHOW_QR=true`, requiere `qrencode`) con
+  `limits://pair?h=IP&p=PORT&t=TOKEN`. La app lo escanea (⚙ → Escanear QR) o lo
+  abre con la cámara del móvil (deep link `limits://pair`). Reimprimir/rotar:
+  `./bin/limits-qr [--rotate]`. El rechazo de auth es `close 4401` **tras**
+  `accept()`: si se cierra antes del upgrade uvicorn responde 403 y el cliente
+  no puede distinguir token malo de red caída.
 
 ### Voz natural ElevenLabs (implementada)
 - Voz dual por economía de cuota: Piper para respuestas cortas del sistema,
@@ -185,6 +227,18 @@ main.run_pipeline(user_input)
 - `hyprctl`/`wpctl`/`playerctl` requieren sesión gráfica activa; bajo systemd user
   service el script ya exporta `WAYLAND_DISPLAY` y `XDG_RUNTIME_DIR`.
 - Los modelos de Whisper se descargan on-demand de HF en el primer arranque.
+- En este equipo el micro **no capta los altavoces** (RMS ambiente ~89, pico
+  ~179): no hay autocorte hoy, pero con altavoces audibles el eco se detecta y
+  se reanuda. Cada detección cuesta ~1,5 s de pausa: con altavoces, auriculares
+  o `module-echo-cancel` de PipeWire.
+- `qwen3.6-27b` (Groq) **omite `confidence`** con frecuencia: `LLMEngine.process`
+  la normaliza a 0.9 (`DEFAULT_CONFIDENCE`) y el executor ejecuta si falta (no
+  bloquear: rompía órdenes legítimas como «cuánta RAM tengo»). El grounding real
+  (¿la acción responde a la pregunta?) es P1; mientras tanto puede elegir una
+  action válida pero equivocada.
+- `{now}` y `{username}`/`{machine_map}` se sustituyen en momentos distintos:
+  usuario y mapa al cargar el prompt, `{now}` en cada turno
+  (`_render_system_prompt`). No congelar la hora al arrancar.
 - Python objetivo: 3.11+ (el entorno usa 3.14). Sintaxis moderna permitida
   (`int | None`).
 

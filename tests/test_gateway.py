@@ -12,7 +12,7 @@ import time
 import unittest
 from pathlib import Path
 
-from websockets.exceptions import InvalidStatus
+from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import connect as ws_connect
 
 from modules.gateway import (
@@ -20,6 +20,8 @@ from modules.gateway import (
     RemoteBusy,
     TurnGate,
     load_or_create_token,
+    pairing_uri,
+    regenerate_token,
 )
 
 
@@ -34,12 +36,14 @@ def _free_port() -> int:
 class Harness:
     """Arranca/para un GatewayServer real sin mDNS ni efectos externos."""
 
-    def __init__(self, pipeline, token_path=None):
+    def __init__(self, pipeline, token_path=None, speak_remote=True, speak_fn=None,
+                 stop_fn=None, stop_words=()):
         self.port = _free_port()
         self.srv = GatewayServer(
             pipeline=pipeline, host="127.0.0.1", port=self.port,
             mdns_name="TestLimits", token_path=token_path,
-            app_version="test", speak_remote=True)
+            app_version="test", speak_remote=speak_remote,
+            speak_fn=speak_fn, stop_fn=stop_fn, stop_words=stop_words)
 
     def __enter__(self):
         self.srv._register_mdns = lambda: None  # jamás anunciar en la LAN real
@@ -80,15 +84,22 @@ def _recv(ws):
 
 
 class TestGatewayAuth(unittest.TestCase):
+    def _rechazo(self, h, token=None):
+        """Sin token válido: el server acepta, manda el error y cierra 4401."""
+        with h.client(token=token) as ws:
+            first = _recv(ws)
+            self.assertEqual(first["err"], "UNAUTHORIZED")
+            with self.assertRaises(ConnectionClosed) as ctx:
+                ws.recv(timeout=5)
+            self.assertEqual(ctx.exception.rcvd.code, 4401)
+
     def test_rechaza_sin_token(self):
         with Harness(ok_pipeline) as h:
-            with self.assertRaises(InvalidStatus):
-                h.client()  # sin header authorization
+            self._rechazo(h)
 
     def test_rechaza_token_incorrecto(self):
         with Harness(ok_pipeline) as h:
-            with self.assertRaises(InvalidStatus):
-                h.client(token="incorrecto")
+            self._rechazo(h, token="incorrecto")
 
     def test_token_se_genera_y_reutiliza(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -98,6 +109,37 @@ class TestGatewayAuth(unittest.TestCase):
             self.assertEqual(t1, t2)
             self.assertGreaterEqual(len(t1), 32)
             self.assertEqual(Path(p).stat().st_mode & 0o777, 0o600)
+
+    def test_chmod_se_reaplica_a_token_existente(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "gw_token"
+            p.write_text("a" * 64)
+            p.chmod(0o644)
+            load_or_create_token(str(p))
+            self.assertEqual(p.stat().st_mode & 0o777, 0o600)
+
+    def test_regenerate_invalida_el_anterior(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = str(Path(tmp) / "gw_token")
+            old = load_or_create_token(p)
+            new = regenerate_token(p)
+            self.assertNotEqual(old, new)
+            self.assertEqual(load_or_create_token(p), new)
+
+
+class TestPairing(unittest.TestCase):
+    def test_uri_contiene_host_puerto_y_token(self):
+        uri = pairing_uri("192.168.1.101", 8765, "deadbeef")
+        self.assertTrue(uri.startswith("limits://pair?"))
+        self.assertIn("h=192.168.1.101", uri)
+        self.assertIn("p=8765", uri)
+        self.assertIn("t=deadbeef", uri)
+
+    def test_servidor_expone_uri_con_ip_lan(self):
+        with Harness(ok_pipeline) as h:
+            uri = h.srv.pairing_uri(host="10.0.0.5")
+            self.assertIn("h=10.0.0.5", uri)
+            self.assertIn(f"t={h.srv.token}", uri)
 
 
 class TestGatewayProtocol(unittest.TestCase):
@@ -156,6 +198,132 @@ class TestGatewayProtocol(unittest.TestCase):
         r = _recv(self.ws)
         self.assertEqual(r["err"], "UNSUPPORTED_VERSION")
 
+    def test_stop_sin_handler_responde_stopped(self):
+        self.ws.send(json.dumps({"v": 1, "type": "stop"}))
+        ev = _recv(self.ws)
+        self.assertEqual((ev["type"], ev["kind"]), ("event", "stopped"))
+
+
+class TestGatewayStop(unittest.TestCase):
+    """Barge-in desde el móvil: `stop` corta el TTS del PC."""
+
+    def test_stop_llama_al_controlador(self):
+        called = []
+        h = Harness(ok_pipeline, stop_fn=lambda: called.append(True)).__enter__()
+        ws = h.client(token=h.srv.token)
+        _recv(ws)  # welcome
+        try:
+            ws.send(json.dumps({"v": 1, "type": "stop"}))
+            ev = _recv(ws)
+            self.assertEqual((ev["type"], ev["kind"]), ("event", "stopped"))
+            self.assertEqual(called, [True])
+        finally:
+            ws.close()
+            h.__exit__()
+
+    def test_para_dictado_corta_sin_pasar_por_el_pipeline(self):
+        """El micro del móvil manda texto: «para» debe cortar, no encolarse."""
+        called, turnos = [], []
+        h = Harness(lambda *a, **k: turnos.append(a) or "no debería",
+                    stop_fn=lambda: called.append(True),
+                    stop_words=["para", "cállate", "basta"]).__enter__()
+        ws = h.client(token=h.srv.token)
+        _recv(ws)  # welcome
+        try:
+            # Con acento, puntuación y mayúsculas: el reconocedor no es limpio.
+            ws.send(json.dumps({"v": 1, "type": "command", "text": "¡Para!"}))
+            ev = _recv(ws)
+            self.assertEqual((ev["type"], ev["kind"]), ("event", "stopped"))
+            self.assertEqual(called, [True])
+            self.assertEqual(turnos, [])
+        finally:
+            ws.close()
+            h.__exit__()
+
+    def test_frase_con_para_sigue_siendo_comando(self):
+        """«para la música» NO es una interrupción: es un comando normal."""
+        turnos, called = [], []
+        h = Harness(lambda text, *a, **k: turnos.append(text) or "hecho",
+                    stop_fn=lambda: called.append(True),
+                    stop_words=["para"]).__enter__()
+        ws = h.client(token=h.srv.token)
+        _recv(ws)  # welcome
+        try:
+            ws.send(json.dumps({"v": 1, "type": "command",
+                                "text": "para la música"}))
+            r = _recv(ws)
+            while r.get("type") == "event":  # primero llega `processing`
+                r = _recv(ws)
+            self.assertEqual(r["type"], "response")
+            self.assertEqual(called, [])
+            self.assertEqual(turnos, ["para la música"])
+        finally:
+            ws.close()
+            h.__exit__()
+
+
+class TestGatewaySpeaking(unittest.TestCase):
+    """F5: la respuesta llega ANTES de hablar y la app recibe eventos de voz."""
+
+    def test_respuesta_antes_de_speaking_y_pipeline_sin_voz(self):
+        llamadas, dicho = [], []
+
+        def pipe(text, wait_timeout=None, speak=True):
+            llamadas.append(speak)
+            return f"ok:{text}"
+
+        h = Harness(pipe, speak_remote=True, speak_fn=dicho.append).__enter__()
+        try:
+            ws = h.client(token=h.srv.token)
+            _recv(ws)  # welcome
+            ws.send(json.dumps({"v": 1, "type": "command", "text": "hola"}))
+            self.assertEqual(_recv(ws)["kind"], "processing")
+            r = _recv(ws)
+            self.assertEqual((r["type"], r["text"]), ("response", "ok:hola"))
+            self.assertEqual(_recv(ws)["kind"], "speaking_started")
+            self.assertEqual(_recv(ws)["kind"], "speaking_finished")
+            self.assertEqual(llamadas, [False])      # el pipeline no habla
+            self.assertEqual(dicho, ["ok:hola"])     # habla el gateway
+            ws.close()
+        finally:
+            h.__exit__()
+
+    def test_speak_remote_false_no_habla_ni_emite(self):
+        dicho = []
+        h = Harness(ok_pipeline, speak_remote=False,
+                    speak_fn=dicho.append).__enter__()
+        try:
+            ws = h.client(token=h.srv.token)
+            _recv(ws)
+            ws.send(json.dumps({"v": 1, "type": "command", "text": "hola"}))
+            self.assertEqual(_recv(ws)["kind"], "processing")
+            self.assertEqual(_recv(ws)["text"], "ok:hola")
+            with self.assertRaises(TimeoutError):
+                ws.recv(timeout=0.7)                 # sin eventos de voz
+            self.assertEqual(dicho, [])
+            ws.close()
+        finally:
+            h.__exit__()
+
+    def test_fallo_de_tts_no_rompe_el_turno(self):
+        def boom(_text):
+            raise RuntimeError("sin audio")
+
+        h = Harness(ok_pipeline, speak_remote=True, speak_fn=boom).__enter__()
+        try:
+            ws = h.client(token=h.srv.token)
+            _recv(ws)
+            ws.send(json.dumps({"v": 1, "type": "command", "text": "hola"}))
+            self.assertEqual(_recv(ws)["kind"], "processing")
+            self.assertEqual(_recv(ws)["text"], "ok:hola")
+            self.assertEqual(_recv(ws)["kind"], "speaking_started")
+            self.assertEqual(_recv(ws)["kind"], "speaking_finished")
+            ws.send(json.dumps({"v": 1, "type": "ping"}))  # turno sigue vivo
+            self.assertEqual(_recv(ws)["type"], "pong")
+            ws.close()
+        finally:
+            h.__exit__()
+
 
 class TestTurnGate(unittest.TestCase):
     def test_timeout_devuelve_false_sin_bloquear(self):
@@ -177,6 +345,18 @@ class TestTurnGate(unittest.TestCase):
 # ── Pipeline compartido (make_pipeline) ──────────────────────────────────────
 
 from main import make_pipeline  # noqa: E402
+
+# Aislamiento: el pipeline real registra episodios en memoria. Sin esto, los
+# tests escribirían en ~/.limits/memory.db del usuario.
+from modules.memory import MemoryStore, set_store  # noqa: E402
+
+_test_memory = MemoryStore(":memory:")
+set_store(_test_memory)
+
+
+def tearDownModule():
+    set_store(None)
+    _test_memory.close()
 
 
 class FakeLLM:

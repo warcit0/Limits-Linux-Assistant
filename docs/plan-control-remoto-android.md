@@ -1,8 +1,8 @@
 # Plan: Control remoto por voz desde Android ("modo Jarvis en casa")
 
-> Estado: **EN CURSO — F1 (gateway), F2 (casting TV) y F3-esqueleto (app
-> Android compilada) implementados**. Pendiente: prueba de F3 en dispositivo
-> físico y fases F4–F6 (wake word, pulido, orbe final).
+> Estado: **EN CURSO — F1 (gateway), F2 (casting TV) y F3 (app Android) completados
+> y probados en dispositivo físico**. Pendiente: fases F4–F6 (voz manos libres,
+> pulido bidireccional y HUD final).
 > Origen: adaptación del prompt "Asistente IA Personal Jarvis" (app Android +
 > servidor PC) a la arquitectura existente de Limits.
 > Principio rector: **no se rehace nada que Limits ya hace bien** — el teléfono es
@@ -66,6 +66,8 @@ Decisiones estructurales:
 // app → servidor
 {"v": 1, "type": "hello",    "device": "pixel7"}
 {"v": 1, "type": "command",  "text": "pon lofi en la tele"}
+{"v": 1, "type": "stop"}                       // corta el TTS YA (botón)
+{"v": 1, "type": "command",  "text": "para"}   // ídem: una sola palabra de BARGEIN_KEYWORDS
 {"v": 1, "type": "ping"}
 
 // servidor → app
@@ -74,18 +76,29 @@ Decisiones estructurales:
                              "intent": "tv_cast", "elapsed_ms": 4200}
 {"v": 1, "type": "response", "ok": false, "err": "BUSY", "msg": "Estoy atendiendo otro comando."}
 {"v": 1, "type": "pong"}
-{"v": 1, "type": "event",    "kind": "speaking_started|speaking_finished"}  // F5+: para animar el orbe
+{"v": 1, "type": "event",    "kind": "speaking_started|speaking_finished|stopped|processing"}  // animar el orbe
 ```
 
 Reglas: campos desconocidos se ignoran (compatibilidad hacia adelante); `v`
 desconocido → error descriptivo; toda respuesta lleva `v`.
 
+**Interrumpir desde el móvil.** El micrófono de la app usa el reconocedor de
+Android: lo que dices llega como `command` de **texto**, no como audio. Por eso
+el servidor trata un comando de una sola palabra presente en
+`BARGEIN_KEYWORDS` («para», «basta», «cállate»…) como un `stop` inmediato: se
+atiende fuera del turno, sin pasar por el LLM y sin esperar a que el PC acabe
+de hablar. Una frase como «para la música» sigue siendo un comando normal.
+
 ## 4. Seguridad (LAN-only, pero no confiado)
 
 1. **Token de emparejamiento**: generado al primer arranque del gateway
-   (`~/.limits/gateway_token`, 32 bytes hex). La app lo introduce UNA vez (o escanea
-   QR que el PC muestra por consola); viaja como header `Authorization: Bearer` en
-   el upgrade de WS. Sin token ⇒ close 4401.
+   (`~/.limits/gateway_token`, 32 bytes hex). La app lo obtiene **escaneando un
+   QR** (`limits://pair?h=IP&p=PORT&t=TOKEN`, `./bin/limits-qr` o al arrancar) —
+   nunca se teclea; viaja como header `Authorization: Bearer` en el upgrade de
+   WS. Sin token ⇒ `close 4401` **después** de `accept()` (antes del upgrade,
+   uvicorn convierte el cierre en un HTTP 403 opaco y la app no puede ofrecer
+   "re-emparejar"). El token se re-aplica a `chmod 600` en cada arranque y
+   `./bin/limits-qr --rotate` lo revoca.
 2. **Bind a la LAN**: escuchar en `0.0.0.0:8765` solo si `GATEWAY_ENABLED=true`;
    nota de firewall en el README (`ufw allow 8765/tcp` o el equivalente de
    CachyOS). Jamás expuesto a internet; sin TLS por ser LAN doméstica + token
@@ -201,16 +214,18 @@ mientras el PC habla.
 - [ ] Done: por voz en el PC: "qué TVs hay", "castea lo que estoy viendo",
       "pausa la tele" funcionan end-to-end
 
-**F3 — App Android esqueleto** *(código completo; pendiente prueba en móvil)*
+**F3 — App Android esqueleto** *(completa; probada en móvil)*
 - [x] Proyecto Compose + pantalla única con estado conexión + botón "hablar"
       con STT nativo (RecognizerIntent es-ES) + historial estilo terminal
       + orbe animado básico (respiración cyan / giro violeta al procesar)
-- [x] Descubrimiento mDNS (NSD `_limits._tcp`) + pairing manual del token
-      (campo ⚙; QR en F6)
+- [x] Descubrimiento mDNS (NSD `_limits._tcp`) + pairing **por QR** escaneado en
+      la app (⚙ → Escanear) o con la cámara del móvil (deep link `limits://pair`);
+      el token manual sigue disponible como fallback
 - [x] Toolchain sin Android Studio: SDK cmdline-tools + Gradle 8.9 en `~/Android`
       y `~/Tools`; wrapper generado; APK debug ~9 MB
-- [ ] Done real: desde el móvil: "abre spotify" abre Spotify en el PC y el orbe
-      muestra la respuesta
+- [x] Done real: desde el móvil: "abre spotify" abre Spotify en el PC y el orbe
+      muestra la respuesta — verificado 2026-10-28 (emparejado por QR, comandos
+      ejecutados: media_control, focus_window, app_open; respuesta en el historial)
 
 **F4 — Voz completa en el móvil**
 - [ ] SpeechRecognizer → reemplaza botón; luego wake word (Porcupine u
@@ -219,8 +234,11 @@ mientras el PC habla.
 - [ ] Done: "Limits, pausa la tele" desde el sofá sin tocar el móvil
 
 **F5 — Pulido bidireccional**
-- [ ] Eventos `speaking_*` para animar el orbe; reconexión automática robusta
-      (backoff exponencial); modo `GATEWAY_SPEAK_LOCAL=false`
+- [x] Eventos `speaking_*` para animar el orbe; la respuesta se envía ANTES de
+      hablar (texto instantáneo en la app) y el gateway reproduce la voz con
+      `speak_fn`, emitiendo `speaking_started` / `speaking_finished`
+- [x] Reconexión automática robusta (backoff exponencial 1→15 s, reseteo al abrir)
+- [x] Modo `GATEWAY_SPEAK_LOCAL=false` (sin voz en el PC para turnos remotos)
 - [ ] Done: red WiFi cae y vuelve → la app se reengancha sola sin tocar nada
 
 **F6 — HUD final**

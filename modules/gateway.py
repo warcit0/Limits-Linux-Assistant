@@ -7,7 +7,10 @@ de Limits (LLM router → executor → voz). Cero lógica de intents aquí.
 Seguridad:
   - Token de pairing autogenerado en ~/.limits/gateway_token (chmod 600).
     La app lo envía como "Authorization: Bearer <token>" en el upgrade del WS.
-  - Sin token ⇒ close 4401. LAN-only por diseño.
+  - Emparejamiento sin teclear: `print_pairing()` muestra un QR con
+    limits://pair?h=IP&p=PORT&t=TOKEN; la app lo escanea una vez.
+  - Sin token ⇒ close 4401 (tras accept, para que el cliente pueda mostrar
+    el motivo; antes daba 403 opaco). LAN-only por diseño.
 Concurrencia:
   - El lock de turno vive en el pipeline compartido con la voz local
     (main.make_pipeline); el gateway pasa wait_timeout y traduce la espera
@@ -19,10 +22,14 @@ import json
 import logging
 import mimetypes
 import secrets
+import shutil
 import socket
+import subprocess
 import threading
 import time
+import unicodedata
 from pathlib import Path
+from urllib.parse import quote, urlencode
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -74,11 +81,99 @@ def load_or_create_token(path: str | None = None) -> str:
     if p.exists():
         token = p.read_text().strip()
         if token:
+            # Re-aplicar 600: el archivo pudo crearse con otro umask o copiarse
+            try:
+                p.chmod(0o600)
+            except OSError:
+                pass
             return token
     token = secrets.token_hex(32)
     p.write_text(token)
     p.chmod(0o600)
     return token
+
+
+def regenerate_token(path: str | None = None) -> str:
+    """Revoca el token actual y crea uno nuevo (re-emparejar la app)."""
+    p = Path(path).expanduser() if path else Path.home() / ".limits" / "gateway_token"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    token = secrets.token_hex(32)
+    p.write_text(token)
+    p.chmod(0o600)
+    return token
+
+
+# ── Emparejamiento por QR (sin teclear 64 caracteres en el móvil) ─────────────
+
+PAIR_SCHEME = "limits://pair"
+
+
+def pairing_uri(host: str, port: int, token: str) -> str:
+    """URI que la app Android entiende: limits://pair?h=IP&p=PORT&t=TOKEN."""
+    query = urlencode({"v": PROTOCOL_VERSION, "h": host, "p": port, "t": token})
+    return f"{PAIR_SCHEME}?{query}"
+
+
+def render_qr(text: str) -> str | None:
+    """QR en ASCII/ANSI UTF-8 vía `qrencode`; None si no está instalado."""
+    binary = shutil.which("qrencode")
+    if not binary:
+        return None
+    try:
+        proc = subprocess.run(
+            [binary, "-t", "ANSIUTF8", "-m", "1", "-o", "-", text],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    return proc.stdout if proc.returncode == 0 and proc.stdout.strip() else None
+
+
+def write_qr_png(text: str, path) -> bool:
+    """Guarda un QR PNG grande (más fácil de escanear que la terminal).
+
+    Devuelve True si se escribió. No falla si `qrencode` no está instalado.
+    """
+    from pathlib import Path as _Path
+
+    binary = shutil.which("qrencode")
+    if not binary:
+        return False
+    target = _Path(path).expanduser()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        proc = subprocess.run(
+            [binary, "-t", "PNG", "-s", "10", "-m", "2", "-o", str(target), text],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return proc.returncode == 0 and target.is_file()
+
+
+def print_pairing(port: int, token: str, host: str | None = None,
+                  out=print) -> str:
+    """Imprime el QR + datos para emparejar la app. Devuelve la URI."""
+    ip = host or lan_ip() or "127.0.0.1"
+    uri = pairing_uri(ip, port, token)
+    qr = render_qr(uri)
+    out("")
+    out("┌─ Emparejar la app Android ─────────────────────────────────────")
+    out(f"│ PC:    {ip}:{port}     red local (sin internet)")
+    out(f"│ Token: {token}")
+    out("│")
+    out("│ App Limits → botón «Escanear QR» (arriba a la derecha), o escanea")
+    out("│ con la cámara del móvil (abre la app directamente).")
+    out("│ ¿No lo lee? Genera un PNG grande:  limits-qr --png --open")
+    if qr:
+        out("│")
+        for line in qr.rstrip("\n").splitlines():
+            out(f"│ {line}")
+    else:
+        out("│ (instala `qrencode` para ver el QR en la terminal)")
+    out("└────────────────────────────────────────────────────────────────")
+    out("")
+    return uri
 
 
 def _msg(**fields) -> dict:
@@ -87,12 +182,46 @@ def _msg(**fields) -> dict:
     return base
 
 
+def _fold(text: str) -> str:
+    """Minúsculas y sin acentos, para comparar palabras habladas."""
+    nfkd = unicodedata.normalize("NFKD", str(text))
+    return "".join(c for c in nfkd if not unicodedata.combining(c)).casefold()
+
+
+def _is_stop(raw: str, stop_words=()) -> bool:
+    """True si el mensaje debe cortar el TTS YA, sin esperar al turno.
+
+    Cubre dos casos:
+      - `{"type":"stop"}` (botón/evento explícito de la app).
+      - `{"type":"command","text":"para"}`: el micrófono del móvil usa el
+        reconocedor de Android, así que «para» llega como **texto**. Si se
+        encolara como un turno normal esperaría a que el PC acabe de hablar
+        (justo lo contrario de interrumpir).
+
+    Solo se acepta una **palabra suelta** del conjunto: «para la música» sigue
+    siendo un comando normal.
+    """
+    try:
+        msg = json.loads(raw)
+    except Exception:
+        return False
+    if not isinstance(msg, dict):
+        return False
+    if msg.get("type") == "stop":
+        return True
+    if msg.get("type") != "command":
+        return False
+    words = _fold(msg.get("text") or "").split()
+    return len(words) == 1 and words[0].strip(".,!¡?¿") in stop_words
+
+
 class GatewayServer:
     """WS /ws + zeroconf. Corre en un hilo daemon dentro del proceso principal."""
 
     def __init__(self, pipeline, host: str = "0.0.0.0", port: int = 8765,
                  mdns_name: str = "Limits", token_path: str | None = None,
-                 app_version: str = "", speak_remote: bool = True):
+                 app_version: str = "", speak_remote: bool = True,
+                 speak_fn=None, stop_fn=None, stop_words=()):
         """
         Args:
             pipeline: callable(text: str, wait_timeout: float | None,
@@ -100,12 +229,23 @@ class GatewayServer:
                       Eleva RemoteBusy si no consigue turno a tiempo.
             speak_remote: si False, los turnos remotos NO hablan por los
                           altavoces del PC (modo silencioso en local).
+            speak_fn: callable(text) que reproduce la voz (tts.speak). Si se
+                      pasa, el gateway habla él mismo DESPUÉS de enviar el
+                      texto: la app recibe la respuesta al instante y el orbe
+                      anima `speaking_started/finished` mientras suena.
+            stop_fn: callable() que corta el TTS en curso (barge-in desde el
+                     móvil: mensaje {"type":"stop"} o un comando con una sola
+                     palabra de `stop_words`, p. ej. «para» dictado al micro).
         """
         self.pipeline = pipeline
         self.host = host
         self.port = port
         self.mdns_name = mdns_name
         self.speak_remote = speak_remote
+        self.speak_fn = speak_fn
+        self.stop_fn = stop_fn
+        # Palabras sueltas que cortan aunque lleguen como texto (micro del móvil).
+        self.stop_words = frozenset(_fold(w).strip() for w in stop_words if w)
         self.token = load_or_create_token(token_path)
         self.app_version = app_version
         self.app = FastAPI(title="Limits Gateway", docs_url=None, redoc_url=None,
@@ -149,6 +289,26 @@ class GatewayServer:
     @property
     def running(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
+
+    # ── pairing ──────────────────────────────────────────────────────────────
+
+    def pairing_uri(self, host: str | None = None) -> str:
+        """URI limits://pair?... con la IP LAN real (no 0.0.0.0)."""
+        if host:
+            ip = host
+        elif self.host in ("0.0.0.0", "::"):
+            ip = lan_ip() or "127.0.0.1"
+        else:
+            ip = self.host
+        return pairing_uri(ip, self.port, self.token)
+
+    def print_pairing(self, out=print) -> str:
+        """QR + token en la terminal para emparejar el móvil sin teclear."""
+        if self.host in ("0.0.0.0", "::"):
+            ip = lan_ip() or "127.0.0.1"
+        else:
+            ip = self.host
+        return print_pairing(self.port, self.token, host=ip, out=out)
 
     # ── mDNS ─────────────────────────────────────────────────────────────────
 
@@ -227,26 +387,53 @@ class GatewayServer:
 
     # ── WebSocket ────────────────────────────────────────────────────────────
 
-    async def _ws_endpoint(self, ws: WebSocket):
+    async def _ws_endpoint(self, ws: WebSocket):        # accept() primero: si rechazáramos antes del upgrade, uvicorn responde
+        # HTTP 403 y la app no puede distinguir "token malo" de "sin red".
+        # Con 4401 el cliente muestra el motivo y ofrece re-emparejar.
+        await ws.accept()
         auth = ws.headers.get("authorization", "")
         if auth != f"Bearer {self.token}":
             log.warning("conexión rechazada sin token válido")
-            await ws.close(code=4401)
+            try:
+                await ws.send_json(_msg(
+                    type="error", err="UNAUTHORIZED",
+                    msg="token inválido: escanea el QR del PC (⚙ → Escanear)"))
+            except Exception:
+                pass
+            await ws.close(code=4401, reason="unauthorized")
             return
 
-        await ws.accept()
         await ws.send_json(_msg(type="welcome", version=self.app_version))
         log.info("cliente conectado")
 
         try:
+            pending: set[asyncio.Task] = set()
             while True:
                 try:
                     raw = await ws.receive_text()
                 except WebSocketDisconnect:
                     break
-                await self._handle_message(ws, raw)
+                # `stop` (barge-in desde el móvil) se atiende YA: si esperara a
+                # que termine el turno en curso, no cortaría nada.
+                if _is_stop(raw, self.stop_words):
+                    await self._handle_stop(ws)
+                    continue
+                task = asyncio.create_task(self._handle_message(ws, raw))
+                pending.add(task)
+                task.add_done_callback(pending.discard)
         finally:
+            for task in list(pending):
+                task.cancel()
             log.info("cliente desconectado")
+
+    async def _handle_stop(self, ws) -> None:
+        """Corta el TTS en curso sin tocar el turno (ni el lock) en marcha."""
+        if self.stop_fn is not None:
+            try:
+                await asyncio.to_thread(self.stop_fn)
+            except Exception:
+                log.warning("stop_fn falló", exc_info=True)
+        await ws.send_json(_msg(type="event", kind="stopped"))
 
     async def _handle_message(self, ws: WebSocket, raw: str) -> None:
         try:
@@ -272,6 +459,8 @@ class GatewayServer:
             await ws.send_json(_msg(type="welcome", version=self.app_version))
         elif mtype == "command":
             await self._run_command(ws, str(msg.get("text") or ""))
+        elif mtype == "stop":
+            await self._handle_stop(ws)
         else:
             await ws.send_json(_msg(type="response", ok=False,
                                     err="UNKNOWN_TYPE",
@@ -286,9 +475,23 @@ class GatewayServer:
 
         await ws.send_json(_msg(type="event", kind="processing"))
         try:
+            # Si el gateway tiene speak_fn, el pipeline NO habla: se responde
+            # primero (texto instantáneo en la app) y se reproduce después,
+            # emitiendo speaking_started/finished para animar el orbe.
+            inline_speak = self.speak_remote and self.speak_fn is None
             spoken = await asyncio.to_thread(
-                self.pipeline, text, TURN_WAIT_TIMEOUT, self.speak_remote)
+                self.pipeline, text, TURN_WAIT_TIMEOUT, inline_speak)
             await ws.send_json(_msg(type="response", ok=True, text=spoken))
+
+            if self.speak_remote and self.speak_fn is not None:
+                await ws.send_json(_msg(type="event", kind="speaking_started"))
+                try:
+                    await asyncio.to_thread(self.speak_fn, spoken)
+                except Exception:
+                    log.warning("TTS remoto falló; la respuesta ya se envió",
+                                exc_info=True)
+                finally:
+                    await ws.send_json(_msg(type="event", kind="speaking_finished"))
         except RemoteBusy:
             await ws.send_json(_msg(
                 type="response", ok=False, err="BUSY",

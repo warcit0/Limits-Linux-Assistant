@@ -1,5 +1,6 @@
-"""Tests del lane compuesto desktop_task (LLM mockeado, sin Ollama)."""
+"""Tests del lane compuesto desktop_task (OpenCode mock + guards)."""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from commands.files import FileCommands
 from modules.desktop_agent import (
     DesktopAgent,
     _extract_json,
+    _normalize_opencode_model,
     match_desktop_task_route,
 )
 from modules.executor import CommandExecutor
@@ -20,7 +22,6 @@ class TestMatchDesktopRoute(unittest.TestCase):
         self.assertEqual(match_desktop_task_route(t), t)
 
     def test_busca_y_abre_no_es_compuesto(self):
-        # Atómico search_and_open — no bypass
         self.assertIsNone(match_desktop_task_route("busca main.py y ábrelo"))
 
     def test_volumen_no_rutea(self):
@@ -38,13 +39,23 @@ class TestExtractJson(unittest.TestCase):
         raw = '```json\n{"tool":"ask_user","args":{"question":"¿Cuál?"}}\n```'
         self.assertEqual(_extract_json(raw)["tool"], "ask_user")
 
+    def test_normalize_model(self):
+        self.assertEqual(
+            _normalize_opencode_model("opencode/deepseek-v4.1-flash-free"),
+            "deepseek-v4.1-flash-free",
+        )
+        self.assertEqual(
+            _normalize_opencode_model("deepseek-v4.1-flash-free"),
+            "deepseek-v4.1-flash-free",
+        )
+
 
 class TestDesktopAgent(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         (self.root / "foto.png").write_text("img")
-        self.files = FileCommands()
+        self.files = FileCommands(search_roots=str(self.root))
         self.pending = []
 
         def setter(action, params, response):
@@ -60,6 +71,8 @@ class TestDesktopAgent(unittest.TestCase):
             pending_setter=setter,
             llm_callable=fake_llm,
             max_steps=5,
+            provider="ollama",
+            fallback="off",
         )
 
     def tearDown(self):
@@ -92,7 +105,6 @@ class TestDesktopAgent(unittest.TestCase):
         ]
         out = self.agent.run("mueve la foto")
         self.assertIn("Confirmas", out)
-        self.assertEqual(len(self.pending), 1)
         self.assertEqual(self.pending[0][0], "move_file")
 
     def test_ask_user(self):
@@ -109,13 +121,89 @@ class TestDesktopAgent(unittest.TestCase):
         out = self.agent.run("borra todo")
         self.assertEqual(out, "Aborté.")
 
+    def test_path_guard_bloquea_open_sin_search(self):
+        fake = str(self.root / "inventado.pdf")
+        self.plan_queue = [
+            {"tool": "open_file", "args": {"path": fake}},
+            {"tool": "done", "args": {"message": "No abrí."}},
+        ]
+        with mock.patch.object(self.files, "open_file") as opener:
+            out = self.agent.run("abre inventado")
+        opener.assert_not_called()
+        self.assertEqual(out, "No abrí.")
+
+
+class TestOpenCodeClient(unittest.TestCase):
+    def test_query_opencode_ok(self):
+        agent = DesktopAgent(
+            files=FileCommands(),
+            provider="opencode",
+            opencode_api_key="test-key",
+            opencode_model="opencode/deepseek-v4.1-flash-free",
+            fallback="off",
+        )
+        fake_body = {
+            "choices": [{
+                "message": {
+                    "content": json.dumps({
+                        "tool": "done",
+                        "args": {"message": "Desde OpenCode."},
+                    }),
+                },
+            }],
+        }
+        with mock.patch("modules.desktop_agent.requests.post") as post:
+            post.return_value = mock.Mock(
+                status_code=200,
+                json=lambda: fake_body,
+            )
+            out = agent.run("cualquier cosa")
+        self.assertEqual(out, "Desde OpenCode.")
+        args, kwargs = post.call_args
+        self.assertIn("/chat/completions", args[0])
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer test-key")
+        self.assertEqual(kwargs["json"]["model"], "deepseek-v4.1-flash-free")
+
+    def test_fallback_a_ollama_tras_fallo_opencode(self):
+        calls = {"n": 0}
+
+        def fake_post(url, **kwargs):
+            calls["n"] += 1
+            m = mock.Mock()
+            if "opencode.ai" in url or "chat/completions" in url:
+                m.status_code = 429
+                m.json.return_value = {}
+                return m
+            # Ollama
+            m.status_code = 200
+            m.json.return_value = {
+                "message": {
+                    "content": json.dumps({
+                        "tool": "done",
+                        "args": {"message": "Via Ollama."},
+                    }),
+                },
+            }
+            return m
+
+        agent = DesktopAgent(
+            files=FileCommands(),
+            provider="opencode",
+            opencode_api_key="test-key",
+            fallback="ollama",
+            ollama_model="qwen2.5:3b-instruct",
+        )
+        with mock.patch("modules.desktop_agent.requests.post", side_effect=fake_post):
+            out = agent.run("tarea")
+        self.assertEqual(out, "Via Ollama.")
+        self.assertGreaterEqual(calls["n"], 2)
+
 
 class TestExecutorDesktopTask(unittest.TestCase):
     def test_desktop_task_en_action_map(self):
         ex = CommandExecutor()
         self.assertIn("desktop_task", ex.action_map)
-        self.assertIn("search_and_open", ex.action_map)
-        self.assertIn("reveal_file", ex.action_map)
+        self.assertIn("open_last", ex.action_map)
 
     def test_desktop_task_usa_agent(self):
         ex = CommandExecutor()

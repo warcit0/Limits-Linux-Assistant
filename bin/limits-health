@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# limits-health — comprueba servicio, gateway, auth y micrófono.
+# Sale 1 si el servicio o el gateway no responden.
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+exec "$ROOT/limits-env/bin/python" "$ROOT/scripts/healthcheck.py" "$@"
