@@ -6,7 +6,8 @@ para Linux). Léela completa antes de modificar nada.
 ## 1. Qué es
 
 Asistente de voz terminal-first para CachyOS + Hyprland (Wayland).
-Pipeline por turno: **STT local → LLM dual → Executor con cortafuegos → TTS local**.
+Pipeline por turno: **STT local → rutas deterministas → LLM local (Ollama) →
+Executor con cortafuegos → TTS local**.
 
 - **Identidad del producto:** "Limits" (no usar nombres antiguos como Carmen/Luna).
 - **Versión:** gestionada SOLO en `version.py` (`__version__`, `STATUS`). Actualmente
@@ -25,11 +26,12 @@ limits --text            # equivalente a ./limits-env/bin/python main.py --text
 # de micrófono/puerto 8765). Control del servicio: limits-service start|stop|
 # restart|status|logs
 
-# Checklist pre-commit / pre-release (sin Groq en el router)
+# Checklist pre-commit / pre-release (router 100 % local, sin Groq)
 ./limits-env/bin/python -m py_compile main.py config.py version.py \
-    modules/*.py commands/*.py
+    modules/*.py commands/*.py scripts/*.py
 ./limits-env/bin/python -m unittest discover -s tests -v
-./bin/measure-router --min-accuracy 0.90   # requiere Ollama; fuerza local
+./bin/measure-router --min-accuracy 0.90        # requiere Ollama
+./limits-env/bin/python scripts/probe_grounding.py   # 8 frases, sin ejecutar
 
 # Tras cambiar código o .env, si el servicio está activo:
 systemctl --user restart limits.service
@@ -47,7 +49,7 @@ Docs: `docs/plan-prompt-corpus-local.md`.
 | `main.py` | Orquestador: argparse (`--text`, `--once`), SIGTERM graceful, wake word inline, loop |
 | `config.py` | Único punto que lee `.env`. Añade aquí toda variable nueva |
 | `version.py` | Metadatos de versión. Única fuente de verdad para versionar |
-| `modules/llm.py` | Groq (prioritario) → Ollama (fallback). Historial de 6 mensajes. Devuelve dict validado o intent `unknown`. Renderiza `{now}` por turno |
+| `modules/llm.py` | Router **100 % local** (Ollama, `qwen2.5:1.5b-instruct`, ctx 8192). Historial de 6 mensajes. Devuelve dict validado por `grounding` o intent `unknown`. Renderiza `{now}` por turno |
 | `modules/stt.py` | PyAudio + webrtcvad (corte: 900ms silencio / máx 10s) + faster-whisper int8 |
 | `modules/tts.py` | piper-tts → pipe → aplay 22050Hz S16LE; fallback espeak-ng. `speak()` devuelve `ok|interrupted`; `pause_all`/`resume_all` (SIGSTOP/SIGCONT) |
 | `modules/speech_controller.py` | Barge-in: VAD mientras habla, pausa/reanuda si es eco, palabras clave («para») y `pending_text` para encadenar |
@@ -56,7 +58,10 @@ Docs: `docs/plan-prompt-corpus-local.md`.
 | `modules/quick_routes.py` | Rutas deterministas de un dato (hora/fecha) **antes** del LLM; excluye horarios ajenos («a qué hora abre…») |
 | `modules/memory.py` | Hechos/notas/episodios en SQLite (`~/.limits/memory.db`, WAL + FTS5, 600). Singleton `get_store()`; si falla, `enabled=False` y todo sigue |
 | `modules/memory_router.py` | «recuerda que…», «olvida…», «qué sabes de mí», «cuál es mi X» sin LLM |
-| `modules/file_router.py` | Ruta determinista de «lista/abre la carpeta X» antes del LLM |
+| `modules/file_router.py` | Ruta determinista de archivos: «lista la carpeta X», «muéstramelo», «ábrelo», «abre el archivo ~/…», «abre el segundo» |
+| `modules/app_router.py` | Ruta determinista de apps: «abre/cierra `<app>`», «pon `<app>` en pantalla» (catálogo real de `APP_MAP`) |
+| `modules/media_router.py` | Ruta determinista de música: «pausa/siguiente/reanuda/para la música», «pon `<artista>` en Spotify» |
+| `modules/grounding.py` | Verificador determinista P1: catálogo real, evidencia por dominio, enums con alias. `grounded=False` → no se ejecuta |
 | `modules/desktop_agent.py` | Lane `desktop_task`: OpenCode Flash agent + fallback Ollama 3b; path guard |
 | `modules/gateway.py` | Gateway WebSocket móvil (`GATEWAY_ENABLED`): token pairing, lock de turno vía pipeline compartido, media firmada para casting |
 | `modules/listener.py` | ⚠️ NO USADO — versión threaded futura del wake word |
@@ -81,9 +86,9 @@ Docs: `docs/plan-prompt-corpus-local.md`.
 
 ```
 main.run_pipeline(user_input)
-  → quick_routes (hora/fecha) · memory_router (recuerda/olvida) · file_router   # sin LLM
-  → llm.process(text)            # dict {intent, action, params, response, confidence} o unknown
-  → executor.execute(parsed)     # string para hablar
+  → quick_routes · memory_router · file_router · app_router · media_router  # sin LLM
+  → llm.process(text)            # propone {intent, action, params, response} + grounding
+  → executor.execute(parsed)     # string para hablar (rechaza grounded=False)
       ├── params.pop("requires_confirmation")
       ├── si hay _pending_action: solo intents "confirm"/"cancel" deciden;
       │   cualquier otro comando cancela lo pendiente y se procesa normal
@@ -218,8 +223,18 @@ main.run_pipeline(user_input)
 
 ## 7. Gotchas conocidos
 
-- Groq es prioritario SI hay `GROQ_API_KEY`; Ollama solo actúa como fallback o motor
-  único sin key. El chequeo de arranque `_check_ollama` es informativo, no bloqueante.
+- **El router es 100 % local** (decisión 2026-10-28): Groq se eliminó del código,
+  de `config.py` y del `.env` (claves comentadas). No hay fallback cloud.
+- **`OLLAMA_NUM_CTX=2048` trunca el prompt** (~1900 tokens): el modelo pierde las
+  instrucciones y el acierto cae al 28 %. Con `8192` sube a 88-94 % y, con las
+  rutas deterministas y el prompt actual, a 100 % del corpus (p50 ~1,6 s). No
+  bajarlo sin volver a medir con `./bin/measure-router`.
+- El 3b no mejora al 1.5b: da 81 % y tarda el doble (4,2 s p50). Por eso el
+  router usa `qwen2.5:1.5b-instruct`; el 3b queda solo como fallback del
+  `desktop_agent`.
+- `LLMEngine` llama una sola vez (temperatura 0 + seed fija): si el grounding no
+  puede anclar la propuesta, se pregunta al usuario en vez de reintentar en
+  silencio.
 - La wake word se filtra sobre la transcripción completa; `WAKE_WORD=Limits` añade
   variaciones "límites/limites" automáticamente en `main.py`.
 - `focus_window` consulta `hyprctl clients -j` antes de enfocar; si no existe la
@@ -231,11 +246,16 @@ main.run_pipeline(user_input)
   ~179): no hay autocorte hoy, pero con altavoces audibles el eco se detecta y
   se reanuda. Cada detección cuesta ~1,5 s de pausa: con altavoces, auriculares
   o `module-echo-cancel` de PipeWire.
-- `qwen3.6-27b` (Groq) **omite `confidence`** con frecuencia: `LLMEngine.process`
-  la normaliza a 0.9 (`DEFAULT_CONFIDENCE`) y el executor ejecuta si falta (no
-  bloquear: rompía órdenes legítimas como «cuánta RAM tengo»). El grounding real
-  (¿la acción responde a la pregunta?) es P1; mientras tanto puede elegir una
-  action válida pero equivocada.
+- El modelo **omite `confidence`** con frecuencia: `LLMEngine.process` la
+  normaliza a 0.9 (`DEFAULT_CONFIDENCE`) y el executor ejecuta si falta (no
+  bloquear: rompía órdenes legítimas como «cuánta RAM tengo»). Quien decide de
+  verdad es el grounding, no la confianza que se declara.
+- El grounding **bloquea de más antes que ejecutar de más**: una frase legítima
+  que acaba en «no estoy seguro de haber entendido» se arregla con una ruta
+  determinista o una palabra en `ACTION_HINTS`, nunca aflojando el verificador.
+- `scripts/probe_grounding.py` reproduce la sonda de 8 frases que originó P1
+  (sin ejecutar handlers) y `scripts/measure_router.py` mide el corpus real con
+  las mismas rutas que `main.run_pipeline`.
 - `{now}` y `{username}`/`{machine_map}` se sustituyen en momentos distintos:
   usuario y mapa al cargar el prompt, `{now}` en cada turno
   (`_render_system_prompt`). No congelar la hora al arrancar.

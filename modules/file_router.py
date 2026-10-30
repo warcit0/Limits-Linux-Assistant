@@ -43,6 +43,28 @@ _MARKERS = (
 
 _TRAILING = " .!?¡¿,;:"
 
+# Seguimientos tras una búsqueda: mecánicos y sin LLM.
+_FOLLOW_REVEAL = re.compile(
+    r"\b(muestramelo|muestrame eso|muestrame ese|ensenamelo|ensename eso)\b")
+_FOLLOW_OPEN = re.compile(r"\b(abrelo|abre eso|abre ese)\b")
+# «busca X y ábrelo» NO es un seguimiento: es search_and_open. Solo los
+# seguimientos puros («ábrelo», «muéstramelo») se resuelven aquí.
+_SEARCH = re.compile(r"\b(busca|buscar|buscame|encuentra|localiza)\b")
+# "abre el archivo ~/..." o "abre el archivo /ruta" (ruta explícita)
+_OPEN_PATH = re.compile(
+    r"\b(?:abre|abrir)\s+(?:el\s+|la\s+)?(?:archivo|fichero)\s+(?P<path>[~/].+)$")
+
+# «abre el segundo» / «muéstrame el tercero»: ordinal sobre la última lista.
+_ORDINALS = {"primer": 1, "primero": 1, "primera": 1,
+             "segundo": 2, "segunda": 2,
+             "tercer": 3, "tercero": 3, "tercera": 3,
+             "cuarto": 4, "cuarta": 4,
+             "quinto": 5, "quinta": 5}
+_ORDINAL = re.compile(
+    r"\b(primer[oa]?|segund[oa]|tercer[oa]?|cuart[oa]|quint[oa])\b")
+_OPEN_VERB = re.compile(r"\b(abre|abreme|abrir)\b")
+_REVEAL_VERB = re.compile(r"\b(muestrame|ensename)\b")
+
 
 def _plain(text: str) -> str:
     """Minúsculas y sin acentos, para comparar verbos."""
@@ -76,6 +98,59 @@ def match_file_route(text: str) -> dict | None:
     if not text or not text.strip():
         return None
     normalized = _plain(text)
+
+    # ── Seguimientos y rutas explícitas: no hace falta el modelo ─────────────
+    match = _OPEN_PATH.search(normalized)
+    if match:
+        resolved = _resolve_existing(_clean(match.group("path")))
+        if resolved:
+            return {
+                "intent": "file_open",
+                "action": "open_file",
+                "params": {"path": resolved},
+                "response": "Abriendo el archivo.",
+                "confidence": 1.0,
+            }
+    if _FOLLOW_REVEAL.search(normalized) and not _SEARCH.search(normalized):
+        return {
+            "intent": "file_reveal_last",
+            "action": "reveal_last",
+            "params": {"index": 1},
+            "response": "Mostrándolo.",
+            "confidence": 1.0,
+        }
+    if _FOLLOW_OPEN.search(normalized) and not _SEARCH.search(normalized):
+        return {
+            "intent": "file_open_last",
+            "action": "open_last",
+            "params": {"index": 1},
+            "response": "Abriendo.",
+            "confidence": 1.0,
+        }
+
+    # «abre el segundo» / «muéstrame el tercero» (tras una lista) — sin ruta
+    # ni búsqueda; no confundir con «abre la segunda ventana».
+    ordinal = _ORDINAL.search(normalized)
+    if (ordinal and not _SEARCH.search(normalized)
+            and not any(w in normalized for w in ("ventana", "pestana", "pantalla",
+                                                  "monitor", "escritorio"))):
+        index = _ORDINALS[ordinal.group(1)]
+        if _OPEN_VERB.search(normalized):
+            return {
+                "intent": "file_open_last",
+                "action": "open_last",
+                "params": {"index": index},
+                "response": "Abriendo.",
+                "confidence": 1.0,
+            }
+        if _REVEAL_VERB.search(normalized):
+            return {
+                "intent": "file_reveal_last",
+                "action": "reveal_last",
+                "params": {"index": index},
+                "response": "Mostrándolo.",
+                "confidence": 1.0,
+            }
 
     is_list = bool(_LIST.search(normalized))
     # "muéstrame el informe de descargas" NO es revelar la carpeta: exigimos

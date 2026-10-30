@@ -1,37 +1,29 @@
-"""
-Módulo LLM — Motor de inteligencia artificial
-Soporta Groq API (cloud, gratuita) como motor principal cuando hay API key,
-con fallback automático a Ollama (local) si Groq falla o no está configurada.
+"""Módulo LLM — router local de intents (Ollama).
 
-Prioridad real (ver LLMEngine.process):
-  1. Groq API (llama-3.1-8b-instant) → Modo Turbo: <1s de latencia, gratis
-  2. Ollama local (qwen2.5-coder:7b) → privado, sin costo, funciona offline
+Decisión 2026-10-28: el router es **100 % local**. Groq salió del camino
+crítico: añadía latencia variable (20-30 s en free tier), dependía de la red y
+su modelo configurado llegó a no existir, con lo que cada turno fallaba en
+silencio y caía al motor pequeño.
 
-Por qué este orden:
-  - Groq es la API más rápida del mercado en free tier y da la mejor UX de voz
-  - Ollama garantiza privacidad total y disponibilidad sin internet
-  - Ambas usan formato de mensajes compatible con OpenAI spec
+El modelo propone; `modules/grounding.py` verifica la propuesta contra el
+catálogo real de acciones y contra la frase del usuario antes de que el
+executor toque nada.
 """
 
 import json
+
 import requests
 from rich.console import Console
+
 from config import Config
 
 console = Console()
 
-# Intentar importar Groq (opcional si no hay API key)
-try:
-    from groq import Groq
-    _GROQ_AVAILABLE = True
-except ImportError:
-    _GROQ_AVAILABLE = False
-
 # Número de mensajes de historial a conservar Y enviar al LLM (deben ser iguales)
 HISTORY_SIZE = 6
 
-# Confianza asumida cuando el modelo omite el campo (qwen3.6-27b lo hace a
-# menudo). No es 1.0 para no mentir en el log, ni <0.5 para no bloquear.
+# Confianza asumida cuando el modelo omite el campo (pasa a menudo). No es 1.0
+# para no mentir en el log, ni <0.5 para no bloquear órdenes legítimas.
 DEFAULT_CONFIDENCE = 0.9
 
 
@@ -50,20 +42,13 @@ def _normalize_confidence(result: dict) -> dict:
 
 
 class LLMEngine:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, actions=None):
         self.config = config
         self.system_prompt = self._load_system_prompt()
         self.conversation_history: list[dict] = []
         self._history_loaded = False
-
-        # Inicializar cliente Groq si hay API key
-        self.groq_client = None
-        if config.GROQ_API_KEY and _GROQ_AVAILABLE:
-            self.groq_client = Groq(api_key=config.GROQ_API_KEY)
-            console.print("[green]✓ Groq API configurada (Prioridad Turbo Activa)[/green]")
-        elif not config.GROQ_API_KEY:
-            console.print("[dim]Groq API key no configurada — solo modo Ollama local[/dim]")
-
+        # Catálogo real del executor (P1): el modelo no puede inventar acciones.
+        self.known_actions = frozenset(actions) if actions else None
         self._check_ollama()
 
     def _load_system_prompt(self) -> str:
@@ -137,7 +122,7 @@ class LLMEngine:
                     console.print(f"[yellow]   Modelos disponibles: {', '.join(models)}[/yellow]")
                     console.print(f"[yellow]   Ejecuta: ollama pull {target}[/yellow]")
         except requests.exceptions.ConnectionError:
-            console.print("[yellow]⚠️  Ollama no responde. Usando Groq como principal (si está configurado).[/yellow]")
+            console.print("[red]⚠️  Ollama no responde: el router no puede funcionar.[/red]")
             console.print("[yellow]   Para iniciar: sudo systemctl start ollama[/yellow]")
 
     def _query_ollama(self, user_text: str) -> dict | None:
@@ -154,7 +139,8 @@ class LLMEngine:
                 "format": "json",
                 "keep_alive": self.config.OLLAMA_KEEP_ALIVE,
                 "options": {
-                    "temperature": 0.1,
+                    "temperature": 0.0,
+                    "seed": 42,
                     "num_predict": 200,
                     "num_ctx": self.config.OLLAMA_NUM_CTX,
                 },
@@ -170,47 +156,10 @@ class LLMEngine:
                 content = response.json()["message"]["content"]
                 return json.loads(content)
 
+            console.print(f"[yellow]Ollama respondió {response.status_code}[/yellow]")
+
         except (requests.exceptions.RequestException, json.JSONDecodeError, KeyError) as e:
-            console.print(f"[yellow]Ollama falló: {e}. Intentando Groq...[/yellow]")
-            return None
-
-    def _query_groq(self, user_text: str) -> dict | None:
-        """Consulta a Groq API como fallback (oficial, gratuita).
-
-        Sin response_format: los modelos con thinking (qwen3/gpt-oss) fallan la
-        validación server-side cuando gastan tokens en <think>. Usamos
-        reasoning_format=hidden + extracción defensiva propia (ver
-        _extract_json), y un reintento único ante respuestas vacías/rotas.
-        """
-        if not self.groq_client:
-            console.print("[red]Error: Groq no disponible (falta API key o paquete groq).[/red]")
-            return None
-
-        messages = [
-            {"role": "system", "content": self._render_system_prompt()},
-            *self.conversation_history,
-            {"role": "user", "content": user_text},
-        ]
-
-        for attempt in (1, 2):
-            try:
-                response = self.groq_client.chat.completions.create(
-                    model=self.config.GROQ_MODEL,
-                    messages=messages,
-                    temperature=0.1,
-                    max_tokens=500,
-                    reasoning_format="hidden",
-                )
-                result = self._extract_json(response.choices[0].message.content or "")
-                if result is not None:
-                    return result
-                console.print(f"[yellow]Groq intento {attempt}: respuesta sin "
-                              f"JSON útil; reintentando...[/yellow]")
-            except Exception as e:
-                console.print(f"[yellow]Groq intento {attempt} falló: "
-                              f"{type(e).__name__}: {str(e)[:100]}[/yellow]")
-
-        console.print("[red]Groq agotó sus intentos.[/red]")
+            console.print(f"[yellow]Ollama falló: {e}[/yellow]")
         return None
 
     @staticmethod
@@ -240,37 +189,39 @@ class LLMEngine:
         return None
 
     def process(self, user_text: str) -> dict:
-        """
-        Procesa texto del usuario y devuelve la intención estructurada.
-        Orden según config.LLM_PRIORITY: "local" (Ollama→Groq) o "cloud"
-        (Groq→Ollama). El JSON no-objeto de un motor cuenta como fallo y
-        activa el siguiente.
+        """Devuelve el intent validado y **anclado** a la frase (P1).
+
+        Si el modelo propone una acción que no existe, un parámetro inválido o
+        un dominio que no aparece en la frase, el resultado sale con
+        `grounded=False`: el executor no lo ejecutará y responderá con
+        honestidad en vez de inventarse un «hecho».
         """
         console.print(f"[dim]Procesando: '{user_text}'[/dim]")
         self._hydrate_history()
 
-        def _valid(r):
-            return r if isinstance(r, dict) else None
-
-        primary, secondary = (
-            (self._query_ollama, self._query_groq)
-            if self.config.LLM_PRIORITY == "local"
-            else (self._query_groq, self._query_ollama)
-        )
-        result = _valid(primary(user_text))
-        if result is None:
-            result = _valid(secondary(user_text))
-
-        if not result:
+        result = self._query_ollama(user_text)
+        if not isinstance(result, dict):
             return {
                 "intent": "unknown",
                 "action": "speak_error",
                 "params": {},
                 "response": "No pude procesar ese comando. ¿Puedes repetirlo?",
                 "confidence": 0.0,
+                "grounded": True,
+                "grounding_reason": "sin_respuesta",
             }
 
         _normalize_confidence(result)
+
+        from modules.grounding import check as _ground
+        verdict = _ground(result.get("action"), result.get("params"),
+                          user_text, self.known_actions)
+        result["params"] = verdict.params
+        result["grounded"] = verdict.ok
+        result["grounding_reason"] = verdict.reason
+        if not verdict.ok:
+            console.print(f"[yellow]grounding: '{result.get('action')}' "
+                          f"rechazada ({verdict.reason}); no se ejecutará.[/yellow]")
 
         # Actualizar historial (máx HISTORY_SIZE mensajes = lo mismo que se envía)
         self.conversation_history.append({"role": "user", "content": user_text})
@@ -282,7 +233,8 @@ class LLMEngine:
 
         console.print(
             f"[dim]Intent: {result.get('intent')} | "
-            f"Confidence: {result.get('confidence', 0):.2f}[/dim]"
+            f"Confidence: {result.get('confidence', 0):.2f} | "
+            f"grounding: {result.get('grounding_reason', 'ok')}[/dim]"
         )
 
         return result

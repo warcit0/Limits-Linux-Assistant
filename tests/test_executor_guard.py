@@ -55,6 +55,47 @@ class TestConfianza(unittest.TestCase):
         self.assertIn("Son las", out)
 
 
+class TestGroundingExecutor(unittest.TestCase):
+    """P1: si el grounding falla, no se ejecuta nada y se dice con claridad."""
+
+    def setUp(self):
+        self.ex = CommandExecutor()
+
+    def test_grounded_false_no_ejecuta(self):
+        out = self.ex.execute({
+            "intent": "system_info", "action": "get_system_info",
+            "params": {"type": "time"}, "response": "Son las 15:00.",
+            "confidence": 0.9, "grounded": False,
+            "grounding_reason": "sin_evidencia",
+        })
+        self.assertIn("No estoy seguro", out)
+        self.assertNotIn("15:00", out)
+
+    def test_accion_inventada_no_miente(self):
+        out = self.ex.execute({
+            "intent": "x", "action": "media_play",
+            "params": {"type": "relaxing"}, "response": "Trayendo Spotify.",
+            "confidence": 0.9, "grounded": True,
+        })
+        self.assertIn("no lo sé hacer", out)
+        self.assertNotIn("Trayendo Spotify", out)
+
+    def test_respuesta_vacia_no_deja_silencio(self):
+        out = self.ex.execute({
+            "intent": "x", "action": "speak_error", "params": {},
+            "response": "", "confidence": 0.9, "grounded": True,
+        })
+        self.assertTrue(out.strip())
+        self.assertIn("No te he entendido", out)
+
+    def test_charla_sin_grounding_ejecuta_su_respuesta(self):
+        out = self.ex.execute({
+            "intent": "x", "action": None, "params": {},
+            "response": "La capital es Canberra.", "confidence": 0.9,
+        })
+        self.assertIn("Canberra", out)
+
+
 class TestNormalizacion(unittest.TestCase):
     def test_inyecta_default_si_falta(self):
         parsed = _normalize_confidence({"intent": "x"})

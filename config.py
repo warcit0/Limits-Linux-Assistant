@@ -11,16 +11,9 @@ def _env_bool(name: str, default: str = "false") -> bool:
 
 class Config:
     OLLAMA_URL: str        = os.getenv("OLLAMA_URL", "http://localhost:11434")
-    OLLAMA_MODEL: str      = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
-    GROQ_API_KEY: str      = os.getenv("GROQ_API_KEY", "")
-    # Modelo Groq para intents (rotan con el tiempo: ver api.groq.com/v1/models)
-    # Benchmark free tier 2026-08-25: qwen3.6-27b ~750-1300ms estable
-    GROQ_MODEL: str        = os.getenv("GROQ_MODEL", "qwen/qwen3.6-27b")
-    # Prioridad del router LLM: "local" (Ollama primero, Groq fallback)
-    # o "cloud" (Groq primero). Benchmark local GPU GTX1650: qwen2.5:1.5b
-    # ~2s medios con 90%+ precisión en intents.
-    LLM_PRIORITY: str      = os.getenv("LLM_PRIORITY", "cloud")
-    OLLAMA_NUM_CTX: int    = int(os.getenv("OLLAMA_NUM_CTX", "2048"))
+    OLLAMA_MODEL: str      = os.getenv("OLLAMA_MODEL", "qwen2.5:3b-instruct")
+    # El router es 100 % local (decisión 2026-10-28): sin proveedor cloud.
+    OLLAMA_NUM_CTX: int    = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
     OLLAMA_KEEP_ALIVE: str = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
 
     # ── Cerebro conversacional Gemini (vía CLI gemdev) ───────────────────────

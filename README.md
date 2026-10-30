@@ -6,7 +6,7 @@
 ![Version](https://img.shields.io/badge/version-1.0.0--prealpha--unstable-red)
 ![Python](https://img.shields.io/badge/Python-3.11+-blue)
 ![Ollama](https://img.shields.io/badge/LLM-Ollama-green)
-![Groq](https://img.shields.io/badge/Modo_Turbo-Groq-orange)
+![Local](https://img.shields.io/badge/Router-100%25_local-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 Un asistente de voz ultra rápido y extensible que corre **directamente en tu terminal**, optimizado para desarrolladores y usuarios de Linux (especialmente CachyOS / Hyprland).
@@ -18,7 +18,8 @@ Un asistente de voz ultra rápido y extensible que corre **directamente en tu te
 
 ## ✨ Funcionalidades Destacadas
 
-- 🚀 **Velocidad Extrema (Modo Turbo):** Arquitectura híbrida. Utiliza la API gratuita de **Groq** para procesar lenguaje natural en menos de un segundo, y cae automáticamente a **Ollama local** si no hay internet o falla Groq.
+- 🚀 **Router 100 % local:** **Ollama** (`qwen2.5:1.5b-instruct`) con grounded decoding determinista: 100 % del corpus de 32 órdenes y **p50 de 1,6 s**. Sin nube, sin telemetría. Las órdenes mecánicas (hora, archivos, apps, música) se resuelven sin modelo en ~0 ms.
+- 🎯 **Grounding anti-alucinación:** el modelo propone y un verificador determinista comprueba catálogo, dominio y parámetros. Si no puede anclarlo a la frase, **no se ejecuta**: se pide aclaración en vez de inventar un «hecho».
 - 🗣️ **Voz Natural Local:** Integración con *Piper TTS* (22kHz) con fallback a `espeak-ng`.
 - 🛡️ **Cortafuegos Anti-Alucinaciones:** Motor de ejecución reflectivo (`inspect.signature`) que filtra automáticamente comandos y parámetros inventados por la IA, además de validación estricta de tipos del JSON recibido.
 - 🔐 **Confirmaciones Verbalmente Explícitas:** Acciones destructivas (`shutdown`, `reboot`) requieren un intent dedicado de confirmación (`confirm` / `cancel`); nunca se infiere de frases ambiguas.
@@ -32,9 +33,9 @@ Un asistente de voz ultra rápido y extensible que corre **directamente en tu te
 graph TD
     A[Microfono PyAudio + webrtcvad] -->|WAV| B(STT: faster-whisper)
     B -->|Texto| C{LLM Engine}
-    C -->|Groq API: turbo| D[Intent Parser JSON]
-    C -->|Ollama local: fallback| D
-    D -->|JSON validado| E[Command Executor]
+    C -->|Ollama local| D[Intent Parser JSON]
+    C -->|Rutas deterministas| E
+    D -->|JSON + grounding| E[Command Executor]
     E -->|Anti-alucinaciones + confirmaciones| F((Acciones del Sistema))
     E -->|Respuesta| G(TTS: piper-tts → aplay)
     G --> H[Speaker]
@@ -44,7 +45,7 @@ graph TD
 
 1. El micrófono graba con VAD (corta tras ~900 ms de silencio, máx. 10 s).
 2. Whisper transcribe localmente y se filtra por *wake word* (configurable).
-3. El LLM (Groq → Ollama) devuelve **exclusivamente** un JSON `{intent, action, params, response, confidence}` guiado por `prompts/system_prompt.txt` (few-shot).
+3. Las órdenes mecánicas (hora, memoria, archivos, apps, música) se resuelven sin modelo. El resto va al **LLM local (Ollama)**, que devuelve **exclusivamente** un JSON `{intent, action, params, response, confidence}`; un verificador de *grounding* lo contrasta con el catálogo real y con la frase antes de ejecutar.
 4. El executor valida tipos, filtra parámetros inexistentes en las firmas Python, exige confirmación en acciones peligrosas y ejecuta via `subprocess` (listas de args, jamás `shell=True`).
 5. Piper sintetiza la respuesta y la reproduce por `aplay`.
 
@@ -85,7 +86,7 @@ Copia la plantilla y rellena tus valores:
 ```bash
 cp .env.example .env
 ```
-Como mínimo define `GROQ_API_KEY` (gratis en [console.groq.com](https://console.groq.com)) para el Modo Turbo. Sin ella, Limits funciona igual pero solo con Ollama local. Consulta la [tabla de configuración](#-configuracin-env) para todas las variables.
+Arranca Ollama (`ollama serve`) y descarga el modelo: `ollama pull qwen2.5:1.5b-instruct`. El router es 100 % local; no hay claves de API en la nube. Consulta la [tabla de configuración](#-configuracin-env) para el resto de variables.
 
 ### 5. Ejecutar
 ```bash
@@ -122,8 +123,8 @@ Atajos disponibles: `limits-service start|stop|restart|status|logs`.
 | Variable | Default | Descripción |
 |---|---|---|
 | `OLLAMA_URL` | `http://localhost:11434` | Endpoint de Ollama |
-| `OLLAMA_MODEL` | `qwen2.5-coder:7b` | Modelo local de respaldo |
-| `GROQ_API_KEY` | *(vacío)* | Llave para Modo Turbo (prioritario si existe) |
+| `OLLAMA_MODEL` | `qwen2.5:1.5b-instruct` | Modelo del router de intents (local) |
+| `OLLAMA_NUM_CTX` | `8192` | Ventana de contexto; con 2048 el prompt se trunca |
 | `WHISPER_MODEL` | `small` | `tiny` / `base` / `small` / `medium` |
 | `LANGUAGE` | `es` | Idioma de transcripción |
 | `STT_DEVICE` | `cpu` | `cpu` o `cuda` |
@@ -169,7 +170,7 @@ Guía técnica detallada (convenciones, seguridad, estructura interna) en [AGENT
 | Componente | Estado |
 |---|---|
 | STT (faster-whisper + VAD) | ✅ Funcional |
-| LLM dual Groq/Ollama | ✅ Funcional |
+| Router local (Ollama) + grounding | ✅ 100 % corpus, p50 1,6 s |
 | TTS (piper + fallback espeak) | ✅ Funcional |
 | Apps / Sistema / Ventanas | ✅ Funcional |
 | Multimedia (Spotify/YouTube/letras) | ✅ Funcional |

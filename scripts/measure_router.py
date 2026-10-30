@@ -7,14 +7,14 @@ Uso (desde la raíz del repo, con venv + Ollama arriba):
   ./limits-env/bin/python scripts/measure_router.py --limit 5
 
 No ejecuta handlers del sistema: solo llm.process (y bypass desktop_task).
-Por defecto fuerza LLM_PRIORITY=local (Groq fuera del hot path del router).
+El router es 100% local (Ollama); el grounding forma parte de la medida: una
+acción bloqueada cuenta como fallo porque no se ejecutaría.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 from pathlib import Path
@@ -36,30 +36,30 @@ def main() -> int:
         "--min-accuracy", type=float, default=0.90,
         help="Umbral de precisión (default 0.90). Exit 1 si no se alcanza.",
     )
-    parser.add_argument(
-        "--allow-cloud", action="store_true",
-        help="No forzar LLM_PRIORITY=local (usa .env tal cual)",
-    )
     args = parser.parse_args()
-
-    if not args.allow_cloud:
-        os.environ["LLM_PRIORITY"] = "local"
 
     corpus = json.loads(Path(args.corpus).read_text(encoding="utf-8"))
     if args.limit > 0:
         corpus = corpus[: args.limit]
 
     from config import Config
+    from modules.app_router import match_app_route
     from modules.desktop_agent import match_desktop_task_route
+    from modules.executor import CommandExecutor
+    from modules.file_router import match_file_route
     from modules.llm import LLMEngine
+    from modules.media_router import match_media_route
 
     config = Config()
-    llm = LLMEngine(config)
+    # Catálogo real (P1): medimos lo mismo que ejecutará el asistente.
+    # `confirm`/`cancel` no están en el action_map (los resuelve `execute()`).
+    executor = CommandExecutor()
+    known = frozenset(executor.action_map) | {"confirm", "cancel"}
+    llm = LLMEngine(config, actions=known)
 
     ok = 0
     rows = []
-    print(f"Corpus: {len(corpus)} frases | priority={config.LLM_PRIORITY} "
-          f"| model={config.OLLAMA_MODEL}")
+    print(f"Corpus: {len(corpus)} frases | model={config.OLLAMA_MODEL}")
     print("-" * 72)
 
     for item in corpus:
@@ -69,12 +69,25 @@ def main() -> int:
         if match_desktop_task_route(phrase):
             got = "desktop_task"
             via = "keyword"
+        elif (route := match_file_route(phrase)):
+            # Mismo orden que `main.run_pipeline`: archivos sin LLM.
+            got = route["action"]
+            via = "file_router"
+        elif (route := match_app_route(phrase)):
+            got = route["action"]
+            via = "app_router"
+        elif (route := match_media_route(phrase)):
+            got = route["action"]
+            via = "media_router"
         else:
             parsed = llm.process(phrase)
             got = parsed.get("action", "")
             via = "llm"
+            # Una acción bloqueada por grounding no se ejecuta: cuenta como fallo.
+            if parsed.get("grounded") is False:
+                via = f"bloqueada:{parsed.get('grounding_reason', '?')}"
         ms = (time.perf_counter() - t0) * 1000
-        hit = got == expected
+        hit = got == expected and not str(via).startswith("bloqueada")
         if hit:
             ok += 1
         mark = "OK" if hit else "FAIL"
@@ -104,7 +117,6 @@ def main() -> int:
         "passed_threshold": accuracy + 1e-9 >= args.min_accuracy,
         "p50_ms": p50,
         "p95_ms": p95,
-        "priority": config.LLM_PRIORITY,
         "ollama_model": config.OLLAMA_MODEL,
         "rows": rows,
     }, ensure_ascii=False, indent=2), encoding="utf-8")

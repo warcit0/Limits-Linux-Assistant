@@ -74,6 +74,37 @@ class TestFileRouter(unittest.TestCase):
         self.assertEqual(match_file_route("lista todos los proyectos")["action"],
                          "list_directory")
 
+    def test_seguimientos_sin_llm(self):
+        """«muéstramelo» y «ábrelo» son mecánicos: no gastan modelo."""
+        self.assertEqual(match_file_route("muéstramelo")["action"], "reveal_last")
+        self.assertEqual(match_file_route("ábrelo")["action"], "open_last")
+        self.assertEqual(match_file_route("enséñamelo")["action"], "reveal_last")
+
+    def test_abre_archivo_con_ruta_explicita(self):
+        readme = self.home / "README.md"
+        readme.write_text("hola", encoding="utf-8")
+        route = match_file_route(f"abre el archivo {readme}")
+        self.assertEqual(route["action"], "open_file")
+        self.assertEqual(route["params"]["path"], str(readme))
+
+    def test_ordinales_tras_una_lista(self):
+        route = match_file_route("abre el segundo")
+        self.assertEqual(route["action"], "open_last")
+        self.assertEqual(route["params"]["index"], 2)
+        self.assertEqual(match_file_route("muéstrame el tercero")["params"]["index"], 3)
+        self.assertIsNone(match_file_route("abre la segunda ventana"))
+
+    def test_no_secuestra_busca_y_abre(self):
+        """«busca X y ábrelo» es search_and_open, no open_last."""
+        self.assertIsNone(match_file_route(
+            "busca main.py en Proyectos/Limits y ábrelo"))
+
+    def test_no_secuestra_mostrar_carpeta(self):
+        """«muéstrame la carpeta work» sigue siendo revelar la carpeta."""
+        route = match_file_route("muéstrame la carpeta work")
+        self.assertEqual(route["action"], "reveal_file")
+        self.assertEqual(route["params"]["path"], str(self.home / "Work"))
+
     def test_ejecuta_de_verdad_listando(self):
         from modules.executor import CommandExecutor
         route = match_file_route("lista los proyectos de la carpeta work")

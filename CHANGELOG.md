@@ -4,6 +4,53 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Versionado semántico simplificado; mientras dure el estado prealpha pueden haber
 cambios rompientes en cualquier release.
 
+## [Unreleased] — 2026-10-29
+
+### Added
+- **Grounding del router (P1):** `modules/grounding.py` verifica cada intent
+  contra el catálogo real (`action_map`), el dominio de la frase y los enums de
+  parámetros (con alias: `free_space`→`disk`). Si no puede anclarlo, devuelve
+  `grounded=False` y `CommandExecutor` **no ejecuta**: responde con honestidad en
+  vez de inventarse un «hecho». Cobertura: `tests/test_grounding.py`,
+  `tests/test_llm_grounding.py`, `tests/test_executor_guard.py`.
+- **Rutas deterministas de apps y música:** `modules/app_router.py` resuelve
+  «abre/cierra `<app>`» y «pon `<app>` en pantalla» contra `APP_MAP`;
+  `modules/media_router.py` resuelve «pausa/siguiente/reanuda/para la música» y
+  «pon `<artista>` en Spotify/YouTube». Sin modelo, en ~0 ms.
+- **Seguimientos de archivos sin LLM:** «muéstramelo» → `reveal_last`, «ábrelo» →
+  `open_last`, «abre el archivo ~/…» → `open_file`, «abre el segundo» →
+  `open_last{index:2}` (`modules/file_router.py`).
+- **Sonda de grounding:** `scripts/probe_grounding.py` reproduce las 8 frases que
+  originaron P1 sin ejecutar handlers (0 acciones incorrectas, 0 silencios).
+
+### Changed
+- **Router 100 % local:** Groq sale de la ecuación. Eliminado de `modules/llm.py`,
+  `config.py`, `main.py`, `.env` (claves comentadas) y del `.env.example`.
+  Sin fallback cloud: la latencia y la privacidad mandan.
+- **`OLLAMA_NUM_CTX=8192`:** con 2048 el prompt (~1900 tokens) se truncaba y el
+  modelo perdía las instrucciones: 28 % de acierto. Con 8192, acierto del 88-94 %
+  y p50 de 2,5 s; con las rutas deterministas y el prompt ajustado, **32/32
+  (100 %)** y **p50 1,6 s**.
+- **Router determinista:** temperatura 0 y `seed` fija (deja de ser creativo).
+- El prompt gana reglas de desambiguación de archivos y `action: null` para
+  charla; presupuesto renderizado 8049 B de 8400.
+- `bin/measure-router` mide el pipeline real (rutas deterministas + grounding) y
+  una acción bloqueada cuenta como fallo. Sin `--allow-cloud`.
+
+### Fixed
+- El executor devolvía «hecho» con acciones inexistentes (`media_play`,
+  `translate`) o con `params` en charla («estoy cansado» → «Trayendo Spotify»).
+  Ahora: acción desconocida → «no lo sé hacer todavía»; grounding fallido →
+  «no estoy seguro de haber entendido».
+- Silencio cuando el modelo devolvía `response` vacía: ahora hay frase de
+  respaldo.
+- `confirm`/`cancel` ya no se bloquean como acción desconocida (no viven en
+  `action_map`, los resuelve `execute()`).
+
+### Documented
+- `docs/plan-p1-grounding.md` (resultados medidos), `docs/tasks/p1-1-grounding.md`,
+  `AGENTS.md` (módulos, flujo y gotchas de contexto) y README/INICIO sin Groq.
+
 ## [Unreleased] — 2026-10-28
 
 Base para que Limits deje de ser un ejecutor de comandos y empiece a comportarse

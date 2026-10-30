@@ -125,7 +125,12 @@ class CommandExecutor:
         Returns: Texto de respuesta para sintetizar en voz.
         """
         # ── Cortafuegos de tipos: el LLM puede alucinar la estructura ─────────
-        action     = parsed_result.get("action", "speak_error")
+        action     = parsed_result.get("action")
+        # Charla: el prompt pide `"action": null` cuando no hay comando; ese
+        # `response` se habla tal cual (no es una acción que ejecutar).
+        if action is None or str(action).lower() in {"", "none", "null", "unknown", "chat"}:
+            action = "speak_error"
+        action     = str(action)
         params     = parsed_result.get("params", {})
         response   = parsed_result.get("response", "Hecho.")
         try:
@@ -142,6 +147,15 @@ class CommandExecutor:
         if not isinstance(response, str):
             response = "Hecho."
         requires_confirmation = bool(params.pop("requires_confirmation", False))
+
+        # ── Grounding (P1): ¿la acción responde a lo que se dijo? ─────────────
+        # El LLM ya lo verificó contra el catálogo y el dominio; si no pudo
+        # anclarla, se responde con honestidad en vez de ejecutar de más.
+        if parsed_result.get("grounded") is False:
+            reason = parsed_result.get("grounding_reason") or "sin_evidencia"
+            console.print(f"[yellow]grounding: bloqueado ({reason}); "
+                          f"no ejecuto '{action}'.[/yellow]")
+            return "No estoy seguro de haber entendido. ¿Puedes decirlo de otra forma?"
 
         # ── ¿Hay una confirmación pendiente? ──────────────────────────────────
         if self._pending_action is not None:
@@ -168,7 +182,9 @@ class CommandExecutor:
             self._pending_action = {"action": action, "params": params, "response": response}
             return f"⚠️  Este comando es sensible. Di 'confirmar' para ejecutarlo o 'cancelar' para no."
 
-        return self._run(action, params, response)
+        texto = self._run(action, params, response)
+        # Nunca silencio: una respuesta vacía deja al usuario esperando.
+        return texto if str(texto).strip() else "No te he entendido. ¿Puedes repetirlo?"
 
     # ──────────────────────────────────────────────────────────────────────────
     # Memoria persistente (P0-3)
@@ -246,7 +262,8 @@ class CommandExecutor:
                 return "No pude completar esa acción."
         else:
             console.print(f"[yellow]Acción no implementada: '{action}'[/yellow]")
-            return default_response
+            # Nunca repetir el response del modelo como si se hubiera hecho.
+            return "Eso no lo sé hacer todavía."
 
     def _noop(self, **kwargs) -> None:
         pass

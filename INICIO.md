@@ -18,7 +18,7 @@ python3 -m venv limits-env
 ./limits-env/bin/pip install -r requirements.txt
 ```
 
-Asegúrate también de tener tu archivo `.env` configurado con tu `GROQ_API_KEY` y tu `WAKE_WORD`.
+Asegúrate también de tener tu archivo `.env` configurado (por ejemplo `WAKE_WORD`) y Ollama arriba con el modelo local: `ollama pull qwen2.5:1.5b-instruct`. El router es 100 % local, sin claves de nube.
 
 ---
 

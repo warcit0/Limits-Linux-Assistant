@@ -60,8 +60,7 @@ def print_banner(config: Config):
         and config.ELEVENLABS_MODE != "off"
     )
     voz = f"piper + ElevenLabs({config.ELEVENLABS_MODE})" if eleven_on else "piper"
-    llm_label = (f"{config.OLLAMA_MODEL} (local)" if config.LLM_PRIORITY == "local"
-                 else f"Groq {config.GROQ_MODEL.split('/')[-1]}")
+    llm_label = f"{config.OLLAMA_MODEL} (local)"
     console.print(Panel.fit(
         f"[bold cyan]🤖 Limits LINUX[/bold cyan] [dim]{__version__} ({STATUS})[/dim]\n"
         f"[dim]LLM: {llm_label}[/dim]\n"
@@ -164,6 +163,34 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                     tts.speak(response_text)
                 return response_text
 
+            # ── Ruta determinista de apps (abrir/cerrar/enfocar) ─────────────
+            # «abre discord» o «pon spotify en pantalla» no necesitan modelo:
+            # el 1.5b a veces las confundía entre sí.
+            from modules.app_router import match_app_route
+            app_route = match_app_route(user_input)
+            if app_route:
+                log.info("turno apps vía router determinista | "
+                         f"action={app_route['action']}")
+                response_text = executor.execute(app_route)
+                intent = app_route.get("intent")
+                log.debug(f"RESPONSE(apps): {response_text}")
+                if speak:
+                    tts.speak(response_text)
+                return response_text
+
+            # ── Ruta determinista de música (control y "pon X") ──────────────
+            from modules.media_router import match_media_route
+            media_route = match_media_route(user_input)
+            if media_route:
+                log.info("turno música vía router determinista | "
+                         f"action={media_route['action']}")
+                response_text = executor.execute(media_route)
+                intent = media_route.get("intent")
+                log.debug(f"RESPONSE(música): {response_text}")
+                if speak:
+                    tts.speak(response_text)
+                return response_text
+
             # ── Ruta operativa (LLM router → executor) ───────────────────────
             log.debug(f"INPUT: {user_input}")
             parsed = llm.process(user_input)
@@ -233,6 +260,10 @@ def main():
         search_excludes=config.FILE_SEARCH_EXCLUDES,
         focus_delay_s=config.FILE_FOCUS_DELAY_S,
     )
+    # P1: el router solo puede emitir acciones que existan de verdad.
+    # `confirm`/`cancel` no viven en el action_map (los resuelve `execute()`),
+    # pero son acciones legítimas del protocolo.
+    llm.known_actions = frozenset(executor.action_map) | {"confirm", "cancel"}
 
     # ── Voz dual: Piper (corto/sistema) + ElevenLabs (largo/natural, opt-in) ──
     piper = TTSEngine(
