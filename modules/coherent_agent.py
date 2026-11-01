@@ -3,7 +3,7 @@
 import re
 import time
 
-from modules.agent_providers import ErrorProveedor
+from modules.agent_providers import ErrorProveedor, ErrorServidorLocal
 from modules.general_agent import resultados_turno
 from modules.task_tools import ACCIONES, LECTURAS, extraer_raices
 
@@ -485,6 +485,8 @@ def error_publico(error,tarea):
     """Los detalles de contrato quedan en la traza, no se leen como respuesta."""
     from modules.grounding import fold
     t = fold(str(error))
+    if isinstance(error,ErrorServidorLocal):
+        return "El servidor del modelo local falló antes de responder. No he confirmado el resultado solicitado."
     if isinstance(error,ErrorProveedor):
         if 'contexto' in t:
             return 'La petición y sus datos no caben completos en el contexto local. Necesito dividirla en partes.'

@@ -49,6 +49,10 @@ class ErrorProveedor(RuntimeError):
     pass
 
 
+class ErrorServidorLocal(ErrorProveedor):
+    """Fallo del servidor de inferencia, distinto de un contrato inválido."""
+
+
 class Cancelado(ErrorProveedor):
     pass
 
@@ -278,7 +282,11 @@ class ProveedorOllama:
         partes = []
         llamadas = []
         try:
-            respuesta.raise_for_status()
+            try:
+                respuesta.raise_for_status()
+            except requests.HTTPError:
+                log.warning("Ollama rechazó la inferencia: HTTP %s", respuesta.status_code)
+                raise ErrorServidorLocal("El servidor local no pudo generar la respuesta.") from None
             for linea in respuesta.iter_lines(chunk_size=1):
                 if cancelar.is_set():
                     raise Cancelado("Tarea cancelada.")
@@ -287,7 +295,7 @@ class ProveedorOllama:
                 if linea:
                     bloque = json.loads(linea)
                     if bloque.get("error"):
-                        raise ErrorProveedor("Ollama no pudo generar la respuesta.")
+                        raise ErrorServidorLocal("Ollama no pudo generar la respuesta.")
                     llamadas.extend(bloque.get("message", {}).get("tool_calls") or [])
                     partes.append(bloque.get("message", {}).get("content", ""))
                     if sum(map(len, partes)) > 20000:

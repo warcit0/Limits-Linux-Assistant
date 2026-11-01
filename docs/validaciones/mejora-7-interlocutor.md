@@ -32,3 +32,17 @@ acotadas y las confirmaciones siguen vigentes.
 
 Reversión sin restaurar código ni aprobaciones: AGENT_MODE=local y reiniciar
 limits.service. Mantener intactas SQLite y la bóveda.
+
+## Corrección del fallo de arranque de inferencia
+
+Los cuatro turnos reales de las 16:29–16:30 fallaron antes de obtener salida
+de Qwen. El registro de Ollama identifica repeticiones excesivas en la gramática
+JSON, seguidas de SIGSEGV y HTTP 500. El esquema nuevo incluía maxLength
+500/4000: se retiraron del esquema enviado; los límites siguen comprobándose
+en decidir_interlocutor. Se conserva la salida estructurada y su validación.
+Los errores HTTP del proveedor local tienen ahora una clase y mensaje propios,
+y registran solo el estado HTTP, sin cuerpos ni datos privados.
+
+Revisión de sintaxis AST y diff; no se ejecutaron tests ni inferencias. Los
+registros de esos turnos no muestran un error independiente de TTS. Esto no
+acredita que el audio sea audible ni sustituye la aceptación funcional.

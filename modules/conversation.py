@@ -7,13 +7,15 @@ def esquema_conversacion(herramientas, contratos):
     from modules.coherent_agent import esquema_local
     base = esquema_local(herramientas, contratos)
     base['properties']['intent']['enum'] = ['command', 'chat', 'clarify']
+    # Los máximos se validan al recibir la decisión: las repeticiones grandes
+    # de la gramática de Ollama pueden derribar su proceso de inferencia.
     encargo = {'type':'object', 'properties':{
-        'intent':{'const':'task'}, 'goal':{'type':'string','minLength':1,'maxLength':4000},
-        'response':{'type':'string','maxLength':500}},
+        'intent':{'const':'task'}, 'goal':{'type':'string','minLength':1},
+        'response':{'type':'string'}},
         'required':['intent','goal','response'],'additionalProperties':False}
     especialista = {'type':'object','properties':{
         'intent':{'const':'delegate'}, 'role':{'enum':['analisis','desarrollo','investigacion']},
-        'response':{'type':'string','maxLength':500}},
+        'response':{'type':'string'}},
         'required':['intent','role','response'],'additionalProperties':False}
     return {'anyOf':[base,encargo,especialista]}
 
