@@ -257,10 +257,6 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                             paso['parametros'] = p
                     registros = [{**paso,'estado':'pendiente'} for paso in plan]
                     tarea.plan_resultados.extend(registros)
-                    if tarea.conversacional and decision.get('avance'):
-                        callback = o._callbacks.get(tarea.sesion)
-                        if callback:
-                            callback({'v':1,'type':'speech','text':decision['avance']})
                     inicio_lote = len(resultados_turno(tarea))
                     for indice, (paso, registro) in enumerate(zip(plan,registros)):
                         accion = paso['accion']
@@ -288,8 +284,14 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                     nuevos = resultados_turno(tarea)[inicio_lote:]
                     resumenes = [h.get('resultado',{}).get('resumen','') for h in nuevos]
                     completo = len(nuevos) == len(plan) and all(p['estado'] == 'completado' for p in tarea.plan_resultados)
-                    if tarea.conversacional and (decision.get('finaliza') is True or errores
-                            or fase == 'conversacion' and any(h['herramienta'] in ACCIONES for h in nuevos)):
+                    if tarea.conversacional and fase == 'conversacion' and any(h['herramienta'] in ACCIONES for h in nuevos):
+                        # Comunicar el efecto real, sin otra inferencia para confirmarlo.
+                        tarea.cobertura_completa = decision.get('finaliza') is True
+                        tarea.pendientes_objetivo = [p['solicitud'] for p in tarea.plan_resultados if p['estado'] != 'completado']
+                        o._finalizar(tarea,resumen_resultados(tarea) or 'No pude comprobar el resultado.',
+                                     estado='terminada' if completo else 'parcial')
+                        return
+                    if tarea.conversacional and (decision.get('finaliza') is True or errores):
                         # Las llamadas directas son lotes concretos. Las tareas abiertas
                         # se encargan al ejecutor; la entrega no vuelve a planificarlas.
                         tarea.cobertura_completa = decision.get('finaliza') is True
@@ -377,7 +379,7 @@ def contexto_acotado(contexto, limite):
               'dialogo','memorias','resultados','errores','raices','observadas','reproductor_elegido',
               'solicitud_completa','interlocutor','presentar_resultados','ahora','encargo','devolucion_ejecutor','continuidad'}
     c = deepcopy({k:v for k,v in contexto.items() if k in campos})
-    c['dialogo'] = [{k:str(v)[:700] for k,v in h.items()} for h in c.get('dialogo',[])[-(10 if c.get('interlocutor') else 6):]]
+    c['dialogo'] = [{k:str(v)[:350 if c.get('interlocutor') else 700] for k,v in h.items()} for h in c.get('dialogo',[])[-6:]]
     c['memorias'] = c.get('memorias',[])[:2]
     # Contratos viajan en el esquema de salida, no duplicados en el mensaje.
     for h in c.get('resultados',[]):
@@ -444,7 +446,7 @@ def compilar_rapida(entrada, *, archivos=None):
     return None
 
 
-def esquema_local(herramientas, contratos=(), *, vincular=False):
+def esquema_local(herramientas, contratos=()):
     """Operaciones con esquemas derivados de firmas reales, compartidas con atajos."""
     firmas = {c['function']['name']:c['function']['parameters'] for c in contratos}
     variantes = []
@@ -453,9 +455,6 @@ def esquema_local(herramientas, contratos=(), *, vincular=False):
         variantes.append({'type':'object','properties':{
             'action':{'const':nombre},'params':parametros},
             'required':['action','params'],'additionalProperties':False})
-        if vincular:
-            variantes[-1]['properties']['solicitud'] = {'type':'string','minLength':1}
-            variantes[-1]['required'].append('solicitud')
     return {'type':'object','properties':{
         'intent':{'type':'string','enum':['command','chat','clarify']},
         'operations':{'type':'array','maxItems':6,'items':{'anyOf':variantes}},
@@ -469,19 +468,16 @@ def decision_local(d,tarea):
         raise ValueError('Usa intent, operations, complete y response.')
     operaciones = d['operations']
     if d['intent'] == 'command':
-        campos = {'action','params','solicitud'} if getattr(tarea,'conversacional',False) else {'action','params'}
+        campos = {'action','params'}
         if not 1 <= len(operaciones) <= 6 or any(not isinstance(p,dict) or set(p) != campos or not isinstance(p['action'],str) or not p['action'] or not isinstance(p['params'],dict) for p in operaciones):
             raise ValueError('Cada operación necesita action y params del catálogo.')
-        if getattr(tarea,'conversacional',False) and any(not isinstance(p['solicitud'],str) or not p['solicitud'].strip() or p['solicitud'] not in tarea.objetivo for p in operaciones):
-            raise ValueError('Vincula cada operación al fragmento literal de la petición actual que atiende; no inventes objetivos adicionales.')
         if any(p['action'].startswith('especialista_') for p in operaciones):
             rol = operaciones[0]['action'].removeprefix('especialista_')
             if len(operaciones) != 1 or 'especialistas' not in tarea.capacidades or rol not in {'analisis','desarrollo','investigacion'}:
                 raise ValueError('Descubre el especialista antes de delegar una sola tarea.')
             return {'tipo':'delegar','rol':rol}
         return {'tipo':'plan','finaliza':d['complete'],'pasos':[
-            {'accion':p['action'],'parametros':p['params'],'solicitud':p.get('solicitud',tarea.objetivo)} for p in operaciones],
-            'avance':d['response'].strip() if getattr(tarea,'conversacional',False) and texto_publico(d['response']) and len(d['response'])<=500 else ''}
+            {'accion':p['action'],'parametros':p['params'],'solicitud':tarea.objetivo} for p in operaciones]}
     if d['intent'] not in {'chat','clarify'} or operaciones:
         raise ValueError('Usa command para operaciones; chat o clarify llevan operations vacío.')
     pasos = resultados_turno(tarea)

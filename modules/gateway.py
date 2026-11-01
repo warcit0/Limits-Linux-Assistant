@@ -481,16 +481,18 @@ class GatewayServer:
             return
 
         opciones = {}
+        turno = secrets.token_hex(8)
         if getattr(self.pipeline, "session_aware", False) is True:
             opciones["session_id"] = self._session_id(ws)
             opciones["turn_generation"] = self.pipeline.generation(opciones["session_id"])
-        await ws.send_json(_msg(type="event", kind="processing"))
+        await ws.send_json(_msg(type="event", kind="processing", turno=turno))
         try:
             bucle = asyncio.get_running_loop()
 
             def enviar(mensaje):
                 # El callback corre en el trabajador del pipeline. El WS
                 # permanece en su bucle; stop sigue atendiendo mensajes.
+                mensaje['turno'] = turno
                 envio = asyncio.run_coroutine_threadsafe(
                     ws.send_json(mensaje), bucle)
                 try:
@@ -500,7 +502,12 @@ class GatewayServer:
                     raise
 
             if getattr(self.pipeline, "progress_aware", False):
-                opciones["on_progress"] = lambda evento: enviar(_msg(type="event", kind="progress", progress=evento))
+                def progreso(evento):
+                    if evento.get('type') == 'audio':
+                        enviar(_msg(type='event',kind='speaking_started' if evento.get('state') == 'started' else 'speaking_finished'))
+                    else:
+                        enviar(_msg(type="event",kind="progress",progress=evento))
+                opciones["on_progress"] = progreso
             if self.speak_remote and self.speak_fn is not None:
                 def entregar_y_hablar(respuesta):
                     enviar(self._response(respuesta))
@@ -531,16 +538,21 @@ class GatewayServer:
             else:
                 spoken = await asyncio.to_thread(
                     self.pipeline, text, TURN_WAIT_TIMEOUT, self.speak_remote, **opciones)
-                await ws.send_json(self._response(spoken))
+                await ws.send_json({**self._response(spoken),'turno':turno})
         except RemoteBusy:
             await ws.send_json(_msg(
-                type="response", ok=False, err="BUSY",
+                type="response", ok=False, err="BUSY", turno=turno,
                 msg="Estoy atendiendo otro comando. Repite en unos segundos."))
         except Exception:
             log.exception("turno remoto falló")
             await ws.send_json(_msg(
-                type="response", ok=False, err="INTERNAL",
+                type="response", ok=False, err="INTERNAL", turno=turno,
                 msg="Error interno procesando el comando."))
+        finally:
+            try:
+                await ws.send_json(_msg(type='event',kind='turn_finished',turno=turno))
+            except Exception:
+                log.debug('No se pudo entregar el cierre del turno remoto')
 
     @staticmethod
     def _session_id(ws):

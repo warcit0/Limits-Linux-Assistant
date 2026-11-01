@@ -4,9 +4,7 @@ el encargo y la petición original completa, sus restricciones y los recibos del
 turno. El encargo no autoriza objetivos adicionales ni contradice al usuario.
 
 Devuelve JSON con intent, operations, complete y response.
-Para herramientas: intent command, operations [{action,params,solicitud},...], response vacío.
-solicitud es el fragmento LITERAL de la petición original que atiende cada paso.
-Comprueba su relación con el efecto y destino; citarlo no permite añadir objetivos.
+Para herramientas: intent command, operations [{action,params},...], response vacío.
 Hasta seis operaciones independientes, con parámetros del catálogo. Si un paso
 depende de una observación, consulta primero con complete=false y decide después.
 complete=true devuelve el control al interlocutor tras ejecutar este lote.

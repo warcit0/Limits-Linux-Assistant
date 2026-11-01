@@ -139,10 +139,9 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
         inicio_turno = time.monotonic()
         turno_id = uuid.uuid4().hex
         primer_texto = False
-        flujo_conversacional = False
 
         def progreso(evento):
-            nonlocal flujo, frases, primer_texto, flujo_conversacional
+            nonlocal flujo, frases, primer_texto
             if presencia and evento.get("type") == "status":
                 presencia.fase("investigando")
             from modules.streaming import FlujoVoz, FrasesProgresivas
@@ -151,17 +150,6 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                 return
             if on_progress:
                 on_progress(evento)
-            if evento.get('type') == 'speech':
-                voz = progress_voice if progress_voice is not None else tts if speak else None
-                if getattr(type(voz),'_listen',None) is not None:
-                    if flujo is None:
-                        terminar_escucha()
-                        flujo = FlujoVoz(voz,lambda:orchestrator.cancelar(session_id),vigente)
-                        flujo_conversacional = True
-                    flujo.decir(evento.get('text',''),tipo='intencion')
-                return
-            if evento.get('type') in {'status','delta'}:
-                flujo_conversacional = False
             if evento.get("type") == "delta" and not primer_texto:
                 primer_texto = True
                 log.info("turno=%s primer_texto_s=%.3f", turno_id, time.monotonic()-inicio_turno)
@@ -172,9 +160,11 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                 terminar_escucha()
                 flujo = FlujoVoz(voz, lambda: orchestrator.cancelar(session_id), vigente)
                 frases = FrasesProgresivas(flujo.decir)
+                if on_progress:
+                    on_progress({"type":"audio","state":"started"})
                 flujo.decir("Voy investigando. Te contaré avances provisionales mientras contrasto las fuentes.", tipo="estado")
                 log.info("turno=%s primer_estado_s=%.3f", turno_id, time.monotonic() - inicio_turno)
-            if flujo is not None and frases is None and not flujo_conversacional:
+            if flujo is not None and frases is None:
                 frases = FrasesProgresivas(flujo.decir)
             if flujo is not None and evento.get("type") == "delta":
                 frases.recibir(evento.get("text", ""))
@@ -206,24 +196,27 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                 response_text = texto
             response_text = texto
             if flujo is not None:
-                if not getattr(texto, "cancelada", False):
-                    completo = getattr(texto, "completo", str(texto))
-                    if flujo_conversacional:
-                        from modules.voice_utils import clean_for_voice
-                        flujo.decir(clean_for_voice(completo))
-                    else:
-                        frases.recibir(completo, final=True)
-                    if not flujo_conversacional and frases.revisado:
-                        flujo.descartar_pendientes()
-                        flujo.decir("La respuesta final corrige o no confirma el avance anterior.")
-                        from modules.voice_utils import clean_for_voice
-                        flujo.decir(clean_for_voice(completo))
-                flujo.cerrar()
-                flujo_cerrado = True
+                # Reservar la voz para el flujo antes de entregar el texto al
+                # gateway: así el callback no inicia otro reproductor.
                 texto.audio_entregado = True
-                texto.audio_metricas = flujo.metricas
-            # El gateway entrega texto y reproduce aquí, aún dentro del turno.
-            if on_response is not None:
+                if on_response is not None:
+                    on_response(texto)
+                try:
+                    if not getattr(texto, "cancelada", False):
+                        frases.recibir(getattr(texto, "completo", str(texto)), final=True)
+                        if frases.revisado:
+                            flujo.descartar_pendientes()
+                            flujo.decir("La respuesta final corrige o no confirma el avance anterior.")
+                            from modules.voice_utils import clean_for_voice
+                            flujo.decir(clean_for_voice(getattr(texto, "completo", str(texto))))
+                    flujo.cerrar()
+                    flujo_cerrado = True
+                    texto.audio_metricas = flujo.metricas
+                finally:
+                    if on_progress:
+                        on_progress({"type":"audio","state":"finished"})
+            elif on_response is not None:
+                # El callback reproduce dentro del mismo bloqueo de turno.
                 on_response(texto)
             if speak and not getattr(texto, "cancelada", False) and not getattr(texto, "audio_entregado", False):
                 if hasattr(texto, "source"):

@@ -518,8 +518,8 @@ main.run_pipeline(user_input)
 - Interlocutor primero en cada petición: chat/clarify, herramientas directas command o
   encargo task. Dispatch por JSON sin traducción intermedia. Un único ciclo en coherent_agent;
   conversation.py son contratos/contexto. Qwen recibe encargo y petición original completa.
-- Retorno de recibos al interlocutor para decidir/explicar. Diálogo reciente de la misma
-  sesión sin detector de referencias, pregunta pendiente y dos recuerdos confirmados.
+- Acciones concretas entregan recibos directamente. Tareas abiertas pueden devolver
+  informes al interlocutor para explicar. Historial breve y dos recuerdos confirmados.
   No heredar permisos ni destinos observados; reobservar antes de actuar. Olvido limpia contexto.
 - En este modo local_permissions.autorizar_capacidad sustituye los permisos léxicos y
   grounding no reinterpreta el lenguaje. Conserva firmas, tipos, enums, catálogo, rutas,
@@ -529,28 +529,39 @@ main.run_pipeline(user_input)
   Memoria explícita conserva su control específico. No terminal libre. Copiar rechaza
   destinos existentes; enviar contenido a TV requiere aprobación. Acciones cotidianas
   acotadas pueden ejecutarse sin juez adicional.
-- La voz de intención usa el FlujoVoz existente y no acredita efectos. Confirmaciones,
+- Los textos de intención de command/task/delegate no se reproducen. Confirmaciones,
   efectos sensibles aprobados y Gemini conservan entrega directa; investigación jamás
   vuelve como instrucciones a un ciclo ejecutable. Una charla afirmativa no aprueba cambios.
 - Plan/tarea: docs/plan-mejora-7-interlocutor.md y docs/tasks/mejora-7-interlocutor.md.
   Mantener la restricción de NO ejecutar pruebas/probes/inferencias de aceptación.
   Solo revisión estática/sintaxis y estado/arranque; aceptación por voz pendiente del usuario.
 
-### Cierre sin nuevas ejecuciones (2026-11-01)
+### Simplificación vigente (2026-11-01)
 
-- Cada operación conversacional incluye solicitud, cita literal del fragmento de
-  la petición que atiende. Se conserva en el plan y se valida antes de ejecutar
-  el lote. La cita acredita procedencia textual; NO prueba pertinencia semántica
-  ni sustituye firmas, destinos observados, confirmaciones o política de efectos.
-- Las llamadas directas son lotes concretos. Tras un efecto directo, un lote final
-  o un informe del ejecutor, fase resultado: una inferencia de presentación SIN
-  herramientas ni catálogo. Solo chat/clarify, complete y response. Si falla,
-  entregar recibos sin reintentar la narración. Las tareas abiertas usan task y
-  conservan su ciclo de observación/ejecución antes de la entrega final.
-- complete en command declara cobertura prevista; en chat declara cobertura
-  interpretada tras recibos. No volver a ejecutar el lote para producir la voz.
-  La intención opcional de command solo se entrega tras validar todo el lote.
-- El catálogo conversacional ofrece un único contrato de foco por dirección
-  observada. Ningún foco abre apps ausentes, tampoco el handler heredado.
-- Los diagnósticos privados añaden tiempos de carga, evaluación de entrada y
-  generación informados por Ollama, y conteos de tokens. Sin inferencias de prueba.
+- Retirada la cita literal de las operaciones conversacionales: Qwen devuelve
+  action/params. El coordinador conserva la petición original en el plan; no
+  exigir al modelo copiar ni mantener errores del dictado. No nuevos jueces ni
+  patrones léxicos. Firmas, tipos, enums, catálogo, destinos observados, sandbox,
+  confirmaciones y recibos contra repetición siguen vigentes.
+- Tras efectos concretos del interlocutor, entregar resúmenes reales directamente,
+  sin inferencia de cierre ni voz libre anterior al efecto. Las tareas abiertas
+  conservan el ejecutor; sus informes y lotes finales pueden pasar a una sola
+  presentación sin herramientas, con fallback a recibos y sin reintento.
+- Historial conversacional limitado a seis mensajes registrados, 350 caracteres
+  por campo y dos recuerdos confirmados. No reinyectar el objetivo, pregunta o
+  recibos anteriores como trabajo pendiente. La petición actual prevalece; las
+  referencias se interpretan con el diálogo. No hay garantía de comprensión universal.
+- Prompt compacto y catálogo sin firmas duplicadas; esquemas conservan parámetros.
+  Petición completa enviada una sola vez. Sin timestamp cambiante innecesario.
+  Métricas privadas de carga/evaluación/generación y cache si Ollama la informa;
+  no asumir que ausencia de la métrica significa cero. No cambiar modelos/contexto.
+- Confirmo/adelante sin aprobación vigente son conversación. Nunca reutilizar una
+  aprobación vieja ni convertir una afirmación conversacional en autorización sensible.
+- Foco por dirección observada sin apertura implícita. Gemini sigue solo voz/datos.
+- Texto final del flujo progresivo se envía antes de esperar su audio. Reservar
+  audio_entregado antes del callback para evitar otro reproductor. Mantener el lock
+  hasta cerrar voz/escucha. Eventos de audio y turn_finished con id de turno en WS.
+- Android aplica estados en Main e ignora cierres de otros turnos. Este código
+  requiere instalar el APK compilado; no afirmar que el móvil fue actualizado por editarlo.
+- NO ejecutar tests, probes ni inferencias de aceptación. Solo sintaxis/revisión
+  estática y estado/arranque; el usuario comprueba libremente por voz.

@@ -82,3 +82,39 @@ Revisión tras aplicar el cambio: AST correcto en 8 archivos Python modificados
 y git diff --check limpio. Servicio reiniciado el 2026-11-01 a las 16:46:49 CST:
 active/running, ExecMainStatus=0. Esto verifica el arranque, no la comprensión,
 el audio ni la latencia de una inferencia. No se ejecutó ningún test/probe/modelo.
+
+## Simplificación del recorrido
+
+Diagnóstico posterior basado en turnos reales: el requisito de copiar la cita
+rechazó una intención reconocida al corregirse el dictado; dos inferencias de
+16,659 y 4,936 s. Un cambio de workspace comprobado terminó pidiendo confirmar
+la misma acción. Al solicitar un proyecto, el modelo arrastró un workspace anterior.
+En ese turno, 18,158 s evaluando entrada, 1,551 s generando y 0,072 s cargando:
+optimizar keep_alive no aborda su coste dominante. No se atribuye todo el tiempo
+restante al modelo: el turno también espera la entrega y el audio.
+
+Se retiraron cita obligatoria y voz libre de intención. Efectos directos entregan
+sus recibos sin narración adicional. Prompt y catálogo más breves, sin duplicar
+firmas, petición ni objetivos/preguntas/recibos de turnos anteriores como pendientes.
+Se conserva diálogo breve como referencia; no se promete interpretar bien cada caso.
+La métrica de tokens de caché se recoge únicamente si el servidor la suministra.
+
+Gemini mantiene streaming: se publica el texto final antes de esperar el audio,
+reservándolo para el flujo para impedir duplicación. Se conserva el bloqueo hasta
+liberar voz/escucha. WS anuncia audio/cierre con id de turno; Android actualiza los
+estados en Main y discrimina turnos. Fuente Android modificada: APK debug compilado sin tests, NO instalado en el
+teléfono. El backend conserva compatibilidad mediante eventos aditivos.
+
+Regresiones adaptadas para no exigir inferencias de cierre ni citas, conservar
+confirmaciones y comprobar el evento de fin. NO EJECUTADAS. No se corrieron
+pruebas, inferencias ni voz. Se compiló assembleDebug --offline correctamente
+en 12 segundos; no ejecuta tests. La latencia posterior del asistente no está medida.
+
+Verificación estática: AST correcto en 9 archivos Python modificados y diff sin
+errores de formato. Prompt interlocutor 4574 → 2577 bytes en crudo; sin medición
+de tokens ni latencia. APK en clients/android/app/build/outputs/apk/debug/app-debug.apk.
+El archivo compilado está fuera del versionado; requiere instalación en el teléfono.
+
+Servicio reiniciado 2026-11-01 17:45:35 CST: active/running, ExecMainStatus=0
+y mensaje de arranque «Limits listo». Solo verifica arranque; sin aceptación
+funcional ni medición posterior de respuesta.

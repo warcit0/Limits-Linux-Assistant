@@ -23,3 +23,15 @@ No contar una sintaxis válida o un servicio arrancado como aceptación funciona
 - [x] Registro privado de métricas de inferencia para los turnos reales.
 - [x] Regresiones simuladas adaptadas y preparadas, sin ejecutar.
 - [ ] Aceptación funcional y latencia por el usuario; no correr pruebas.
+
+### Simplificación tras los turnos reales
+
+- [x] Retirar la cita literal obligatoria y sus rechazos por corregir el dictado.
+- [x] Cierre directo de efectos concretos, sin nueva inferencia ni avances libres.
+- [x] Compactar prompt/contexto y retirar objetivos antiguos reinyectados como activos.
+- [x] Texto progresivo antes de finalizar audio; bloqueo conservado hasta el cierre.
+- [x] Estados WS por turno y corrección de estados Android en Main.
+- [x] Regresiones preparadas/adaptadas, NO ejecutadas.
+- [x] Compilar APK debug con assembleDebug --offline, sin tests.
+- [ ] Instalar APK Android actualizado en el teléfono; no se instaló automáticamente.
+- [ ] Aceptación y tiempos mediante turnos reales del usuario, sin pruebas guiadas.

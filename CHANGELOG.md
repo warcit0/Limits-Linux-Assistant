@@ -6,6 +6,11 @@ cambios rompientes en cualquier release.
 
 ## [Unreleased]
 
+- Simplificación conversacional: sin citas literales obligatorias ni voz de
+  intención; efectos directos comunican sus recibos sin inferencia de cierre.
+  Contexto compacto y texto progresivo antes del fin de audio. Cierre WS por turno
+  y estados Android en Main (requiere APK actualizado). Sin pruebas ejecutadas.
+
 - Interlocutor: entrega final sin herramientas, sin repetir inferencias ante una
   narración inválida; recibos conservados si falla la explicación. Operaciones
   vinculadas a citas del usuario y foco sin apertura implícita. Diagnóstico privado

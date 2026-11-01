@@ -50,6 +50,7 @@ class WsClient(private val scope: CoroutineScope) {
     private var token = ""
     private val running = AtomicBoolean(false)
     private var loopJob: Job? = null
+    private var turnoActivo = ""
 
     val state = MutableStateFlow<ConnState>(ConnState.Searching)
     val processing = MutableStateFlow(false)
@@ -195,40 +196,40 @@ class WsClient(private val scope: CoroutineScope) {
 
     private fun handle(text: String) {
         val obj = runCatching { JSONObject(text) }.getOrNull() ?: return
-        when (obj.optString("type")) {
-            "welcome" -> Unit  // el estado Connected ya lo refleja
-            "pong" -> Unit
-            "error" -> {
-                // UNAUTHORIZED lo reporta onClosed(4401) con acción concreta
-                if (obj.optString("err") != "UNAUTHORIZED") {
-                    onMain {
-                        addLog("! " + obj.optString("msg"), mine = false, ok = false)
+        onMain {
+            val turno = obj.optString("turno")
+            val vigente = turno.isEmpty() || turno == turnoActivo
+            when (obj.optString("type")) {
+                "welcome", "pong" -> Unit
+                "error" -> if (obj.optString("err") != "UNAUTHORIZED") {
+                    addLog("! " + obj.optString("msg"), mine = false, ok = false)
+                }
+                "event" -> {
+                    val kind = obj.optString("kind")
+                    if (kind == "processing") {
+                        turnoActivo = turno
+                        speaking.value = false
+                        processing.value = true
+                    } else if (vigente) {
+                        when (kind) {
+                            "speaking_started" -> {
+                                processing.value = false
+                                speaking.value = true
+                            }
+                            "speaking_finished" -> speaking.value = false
+                            "stopped", "turn_finished" -> {
+                                processing.value = false
+                                speaking.value = false
+                            }
+                        }
                     }
                 }
-            }
-            "event" -> when (obj.optString("kind")) {
-                "processing" -> onMain {
-                    speaking.value = false
-                    processing.value = true
+                "response" -> {
+                    val ok = obj.optBoolean("ok")
+                    val shown = if (ok) obj.optString("text") else obj.optString("msg")
+                    if (vigente) processing.value = false
+                    addLog(if (ok) shown else "! $shown", mine = false, ok = ok)
                 }
-                // F5: el gateway responde primero y habla después. Estos eventos
-                // permiten que el orbe muestre «hablando» sin bloquear el texto.
-                "speaking_started" -> onMain {
-                    processing.value = false
-                    speaking.value = true
-                }
-                "speaking_finished" -> onMain { speaking.value = false }
-                // El PC confirmó el corte (botón o «para» dictado al micro).
-                "stopped" -> onMain {
-                    processing.value = false
-                    speaking.value = false
-                }
-            }
-            "response" -> {
-                val ok = obj.optBoolean("ok")
-                val shown = if (ok) obj.optString("text") else obj.optString("msg")
-                processing.value = false
-                onMain { addLog(if (ok) shown else "! $shown", mine = false, ok = ok) }
             }
         }
     }

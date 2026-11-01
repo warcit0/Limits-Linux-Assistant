@@ -293,9 +293,8 @@ class Orquestador:
             anterior = None
         intent = decision_confirmacion(entrada)
         if (getattr(self.config,'AGENT_MODE','legacy') == 'conversacional'
-                and intent == 'confirmar' and not (anterior and anterior.pendiente and anterior.estado == 'aprobacion')
-                and limpio not in {'confirmar','confirmo','confirma'}):
-            # «Adelante» puede responder a una propuesta conversacional. Solo una
+                and intent == 'confirmar' and not (anterior and anterior.pendiente and anterior.estado == 'aprobacion')):
+            # Una afirmación puede responder a una pregunta conversacional. Solo una
             # aprobación vigente entra al mecanismo de efectos sensibles.
             intent = None
         if intent == "cancelar":

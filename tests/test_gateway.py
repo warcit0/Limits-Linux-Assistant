@@ -85,7 +85,12 @@ def busy_pipeline(text, wait_timeout=None, speak=True):
 
 
 def _recv(ws):
-    return json.loads(ws.recv(timeout=5))
+    # Las pruebas anteriores al evento aditivo de cierre siguen leyendo el
+    # siguiente mensaje útil; el cierre se comprueba explícitamente aparte.
+    while True:
+        mensaje = json.loads(ws.recv(timeout=5))
+        if mensaje.get('kind') != 'turn_finished':
+            return mensaje
 
 
 class TestGatewayAuth(unittest.TestCase):
@@ -287,6 +292,9 @@ class TestGatewaySpeaking(unittest.TestCase):
             self.assertEqual((r["type"], r["text"]), ("response", "ok:hola"))
             self.assertEqual(_recv(ws)["kind"], "speaking_started")
             self.assertEqual(_recv(ws)["kind"], "speaking_finished")
+            cierre = json.loads(ws.recv(timeout=5))
+            self.assertEqual(cierre['kind'],'turn_finished')
+            self.assertEqual(cierre['turno'],r['turno'])
             self.assertEqual(llamadas, [False])      # el pipeline no habla
             self.assertEqual(dicho, ["ok:hola"])     # habla el gateway
             ws.close()

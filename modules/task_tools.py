@@ -130,7 +130,7 @@ class HerramientasTarea:
                 if not AppCommands.disponibles():
                     comunes -= {'open_application','close_application','focus_window'}
                 if 'open_application' in catalogo:
-                    catalogo['open_application'] = '(app:str) abre SOLO una app conocida: '+', '.join(AppCommands.disponibles())+'. Para otras usa buscar_aplicaciones y abrir_aplicacion. No acepta argumentos extra.'
+                    catalogo['open_application'] = '(app:str) abre una app del enum instalado. Para otras usa buscar_aplicaciones y abrir_aplicacion. No acepta argumentos extra.'
                 if getattr(getattr(self,"config",None),"SPOTIFY_MCP_ENABLED",False):
                     comunes.update({"spotify_buscar","spotify_estado","spotify_reproducir","spotify_control"})
                     comunes.discard("spotify_play")

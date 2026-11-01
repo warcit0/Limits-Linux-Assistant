@@ -206,8 +206,7 @@ class ProveedorOllama:
         elif local:
             from modules.coherent_agent import esquema_local, catalogo_local
             contexto = {**contexto,"herramientas":catalogo_local(contexto.get("herramientas",{}),tarea)}
-            formato = esquema_local(contexto["herramientas"],contexto.get("contratos",[]),
-                                    vincular=getattr(tarea,'conversacional',False))
+            formato = esquema_local(contexto["herramientas"],contexto.get("contratos",[]))
         elif contexto.get("coherente"):
             from modules.coherent_agent import esquema_coherente
             formato = esquema_coherente(contexto.get("contratos",[]))
@@ -233,7 +232,11 @@ class ProveedorOllama:
         if nativo:
             sistema += "\nInvoca las funciones nativas para usar herramientas. Para terminar devuelve texto JSON de tipo respuesta o pregunta. No escribas una llamada como texto."
         if contexto.get("semantico") and "herramientas" in contexto and not nativo:
-            sistema += "\nCatálogo real de herramientas:\n" + json.dumps(contexto["herramientas"], ensure_ascii=False, sort_keys=True)
+            # Los parámetros ya están en el esquema; conservar aquí la descripción
+            # de uso, sin repetir las firmas.
+            descripciones = {k:v.split(') ',1)[-1] if v.startswith('(') else v
+                             for k,v in contexto['herramientas'].items()}
+            sistema += "\nCapacidades:\n" + "\n".join(k+": "+descripciones[k] for k in sorted(descripciones))
             contexto_enviado = {k:v for k,v in contexto.items() if k != "herramientas"}
             if contexto.get("coherente"):
                 contexto_enviado.pop("contratos", None)
@@ -242,6 +245,12 @@ class ProveedorOllama:
         if local and not interlocutor:
             from modules.coherent_agent import contexto_local
             contexto_enviado = contexto_local(contexto)
+        if local:
+            # La petición ya va completa en el último mensaje. Las banderas del
+            # coordinador no aportan información al modelo.
+            contexto_enviado = {k:v for k,v in contexto_enviado.items()
+                if k not in {'entrada','interlocutor','presentar_resultados','semantico','coherente'}
+                and v not in (None,'',[],{})}
         mensajes = [{"role": "system", "content": sistema},
                     {"role": "user", "content": json.dumps(contexto_enviado, ensure_ascii=False)}]
         if local:
@@ -308,7 +317,7 @@ class ProveedorOllama:
                             valor = bloque.get(campo)
                             if type(valor) in (int,float) and valor >= 0:
                                 metricas[campo] = round(valor/1_000_000_000,3)
-                        for campo in ('prompt_eval_count','eval_count'):
+                        for campo in ('prompt_eval_count','prompt_eval_cached_count','eval_count'):
                             valor = bloque.get(campo)
                             if type(valor) is int and valor >= 0:
                                 metricas[campo] = valor

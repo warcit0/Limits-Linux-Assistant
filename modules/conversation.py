@@ -5,7 +5,7 @@ from copy import deepcopy
 
 def esquema_conversacion(herramientas, contratos):
     from modules.coherent_agent import esquema_local
-    base = esquema_local(herramientas, contratos, vincular=True)
+    base = esquema_local(herramientas, contratos)
     base['properties']['intent']['enum'] = ['command', 'chat', 'clarify']
     # Los máximos se validan al recibir la decisión: las repeticiones grandes
     # de la gramática de Ollama pueden derribar su proceso de inferencia.
@@ -66,21 +66,14 @@ def presentar_resultados(o, tarea, contexto):
 
 def contexto_conversacion(tarea, contexto, anterior):
     """Separar diálogo, memoria confirmada y recibos; ningún dato otorga permisos."""
-    from modules.clock import now_line
-    c = {k:deepcopy(contexto[k]) for k in ('entrada','resultados','errores','raices','observadas','reproductor_elegido') if contexto.get(k)}
-    c.update(interlocutor=True, ahora=now_line(), dialogo=tarea.dialogo,
-             memorias=tarea.memorias, encargo=tarea.encargo,
+    c = {k:deepcopy(contexto[k]) for k in ('resultados','errores','raices','observadas','reproductor_elegido') if contexto.get(k)}
+    c.update(interlocutor=True, entrada=contexto.get('entrada',tarea.objetivo),
+             dialogo=tarea.dialogo[-6:], memorias=tarea.memorias[:2],
+             encargo=tarea.encargo,
              devolucion_ejecutor=tarea.entidades.get('devolucion_ejecutor',''),
              familias_disponibles=contexto.get('familias_disponibles',[]))
-    if anterior and not tarea.entidades.get('memoria_olvidada') and anterior.estado not in {'cancelada','aprobacion','interrumpida','trabajando'}:
-        c['continuidad'] = {'objetivo':anterior.objetivo[:2000],
-            'estado':anterior.estado,'pregunta':anterior.pregunta_abierta,
-            'resultados_anteriores':[{'herramienta':h['herramienta'],
-                'resultado':{'ok':h.get('resultado',{}).get('ok'),
-                    'verificado':h.get('resultado',{}).get('verificado'),
-                    'resumen':str(h.get('resultado',{}).get('resumen',''))[:500],
-                    'datos':str(h.get('resultado',{}).get('datos',''))[:1200]}}
-                for h in anterior.historial if h.get('herramienta')][-3:]}
+    # El historial sirve para resolver referencias. No reinyectar el objetivo,
+    # los recibos ni la pregunta anterior como trabajo activo de esta petición.
     return c
 
 
@@ -106,11 +99,6 @@ def decidir_interlocutor(o, tarea, contexto, anterior):
             if d['role'] not in {'analisis','desarrollo','investigacion'}:
                 raise ValueError('Ese especialista no está disponible.')
             salida = {'tipo':'delegar','rol':d['role']}
-        if d['response'].strip():
-            # Solo intención; nunca una afirmación de éxito anterior a los recibos.
-            callback = o._callbacks.get(tarea.sesion)
-            if callback:
-                callback({'v':1,'type':'speech','text':d['response'].strip()})
         return salida
     salida = decision_local(d,tarea)
     if salida['tipo'] in {'respuesta','pregunta'}:
