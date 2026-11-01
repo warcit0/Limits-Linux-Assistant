@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "pregunta": "¿Cuál te parece más conveniente?",
+  "respuesta_inicial": "¡Hola! Para organizar tu trabajo, hay varias maneras de hacerlo. ¿Prefieres:\n\n1. Organizar tus archivos en carpetas según los tipos de documentos (ejemplo: \"Documentos\", \"Reportes\", \"Ejemplos\").\n2. Crear un sistema para categorizar tus tareas diarias y semanales.\n\n¿Cuál te parece más conveniente?",
+  "seguimiento": "Aplicaciones con ventanas: Chatgpt, chromium, firefox ¿Qué aplicación quieres poner al frente?",
+  "herramientas": [
+    "list_running_apps"
+  ]
+}

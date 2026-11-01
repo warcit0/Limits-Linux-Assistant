@@ -1,0 +1,133 @@
+{
+  "ok": true,
+  "revisado": false,
+  "fragmentos": 5,
+  "palabras": 157,
+  "eventos": [
+    {
+      "tipo": "status",
+      "segundos": 0.704,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 5.863,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 6.215,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 6.592,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 6.944,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 7.296,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 7.649,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 8.002,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 8.354,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 8.707,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 9.06,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 9.416,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 9.769,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 10.121,
+      "chars": 0
+    },
+    {
+      "tipo": "status",
+      "segundos": 10.475,
+      "chars": 0
+    },
+    {
+      "tipo": "delta",
+      "segundos": 10.827,
+      "chars": 12
+    },
+    {
+      "tipo": "delta",
+      "segundos": 11.18,
+      "chars": 33
+    },
+    {
+      "tipo": "delta",
+      "segundos": 11.533,
+      "chars": 313
+    },
+    {
+      "tipo": "delta",
+      "segundos": 11.887,
+      "chars": 485
+    },
+    {
+      "tipo": "delta",
+      "segundos": 12.284,
+      "chars": 626
+    },
+    {
+      "tipo": "delta",
+      "segundos": 12.636,
+      "chars": 752
+    },
+    {
+      "tipo": "delta",
+      "segundos": 12.989,
+      "chars": 924
+    },
+    {
+      "tipo": "delta",
+      "segundos": 13.342,
+      "chars": 1238
+    },
+    {
+      "tipo": "delta",
+      "segundos": 14.079,
+      "chars": 1274
+    },
+    {
+      "tipo": "final",
+      "segundos": 17.661,
+      "chars": 0
+    }
+  ]
+}

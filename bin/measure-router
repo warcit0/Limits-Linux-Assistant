@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Mide precisión y latencia del router LLM contra tests/corpus_ordenes.json
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec "$ROOT/limits-env/bin/python" "$ROOT/scripts/measure_router.py" "$@"

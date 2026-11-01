@@ -1,0 +1,615 @@
+{
+  "total": 40,
+  "aciertos": 40,
+  "p50_ms": 682.0,
+  "resultados": [
+    {
+      "caso": {
+        "entrada": "Explícame qué es un CSV",
+        "rol": "cotidiano",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 6044
+    },
+    {
+      "caso": {
+        "entrada": "Qué significa comprimir un archivo",
+        "rol": "cotidiano",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 643
+    },
+    {
+      "caso": {
+        "entrada": "Dame una idea para organizar mi jornada",
+        "rol": "cotidiano",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 721
+    },
+    {
+      "caso": {
+        "entrada": "Cuál es la diferencia entre RAM y disco",
+        "rol": "cotidiano",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 699
+    },
+    {
+      "caso": {
+        "entrada": "Cómo funciona una carpeta compartida",
+        "rol": "cotidiano",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 646
+    },
+    {
+      "caso": {
+        "entrada": "Hola Limits, qué puedes hacer",
+        "rol": "cotidiano",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 642
+    },
+    {
+      "caso": {
+        "entrada": "Sube el volumen al 40",
+        "rol": "cotidiano",
+        "modo": "actuar"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "actuar",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 698
+    },
+    {
+      "caso": {
+        "entrada": "Cierra Spotify",
+        "rol": "cotidiano",
+        "modo": "actuar"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "actuar",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 640
+    },
+    {
+      "caso": {
+        "entrada": "Abre Discord",
+        "rol": "cotidiano",
+        "modo": "actuar"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "actuar",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 634
+    },
+    {
+      "caso": {
+        "entrada": "Cuánta RAM usa el sistema",
+        "rol": "cotidiano",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 643
+    },
+    {
+      "caso": {
+        "entrada": "Qué aplicaciones están abiertas",
+        "rol": "cotidiano",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 641
+    },
+    {
+      "caso": {
+        "entrada": "Pausa la música",
+        "rol": "cotidiano",
+        "modo": "actuar"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "actuar",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 643
+    },
+    {
+      "caso": {
+        "entrada": "Analiza los archivos de /tmp/limits-demo y recomienda una organización",
+        "rol": "analisis",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "analisis",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 639
+    },
+    {
+      "caso": {
+        "entrada": "Compara los presupuestos guardados en /tmp/limits-demo",
+        "rol": "analisis",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "analisis",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 855
+    },
+    {
+      "caso": {
+        "entrada": "Revisa los registros en /tmp/limits-demo y explica los errores frecuentes",
+        "rol": "analisis",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "analisis",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 618
+    },
+    {
+      "caso": {
+        "entrada": "Lee estos datos de /tmp/limits-demo y recomienda qué revisar primero",
+        "rol": "analisis",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "analisis",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 620
+    },
+    {
+      "caso": {
+        "entrada": "Busca contradicciones entre los documentos de /tmp/limits-demo",
+        "rol": "analisis",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "analisis",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 869
+    },
+    {
+      "caso": {
+        "entrada": "Evalúa las alternativas descritas en /tmp/limits-demo sin cambiar archivos",
+        "rol": "analisis",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "analisis",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 628
+    },
+    {
+      "caso": {
+        "entrada": "Prepara un script Python que cuente archivos",
+        "rol": "desarrollo",
+        "modo": "preparar"
+      },
+      "salida": {
+        "rol": "desarrollo",
+        "modo": "preparar",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 901
+    },
+    {
+      "caso": {
+        "entrada": "Escribe un programa para convertir CSV a JSON",
+        "rol": "desarrollo",
+        "modo": "preparar"
+      },
+      "salida": {
+        "rol": "desarrollo",
+        "modo": "preparar",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 878
+    },
+    {
+      "caso": {
+        "entrada": "Crea un script que organice una copia de esta carpeta",
+        "rol": "desarrollo",
+        "modo": "preparar"
+      },
+      "salida": {
+        "rol": "desarrollo",
+        "modo": "preparar",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 657
+    },
+    {
+      "caso": {
+        "entrada": "Genera código Python para detectar archivos duplicados",
+        "rol": "desarrollo",
+        "modo": "preparar"
+      },
+      "salida": {
+        "rol": "desarrollo",
+        "modo": "preparar",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 885
+    },
+    {
+      "caso": {
+        "entrada": "Prepara un script con pruebas para validar estas filas",
+        "rol": "desarrollo",
+        "modo": "preparar"
+      },
+      "salida": {
+        "rol": "desarrollo",
+        "modo": "preparar",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 891
+    },
+    {
+      "caso": {
+        "entrada": "Escribe un script que produzca un informe de tamaños",
+        "rol": "desarrollo",
+        "modo": "preparar"
+      },
+      "salida": {
+        "rol": "desarrollo",
+        "modo": "preparar",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 925
+    },
+    {
+      "caso": {
+        "entrada": "Qué noticias hay hoy sobre Linux",
+        "rol": "investigacion",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "investigacion",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 635
+    },
+    {
+      "caso": {
+        "entrada": "Investiga las novedades de esta semana sobre baterías",
+        "rol": "investigacion",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "investigacion",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 681
+    },
+    {
+      "caso": {
+        "entrada": "Consulta la documentación vigente de Python y sus cambios recientes",
+        "rol": "investigacion",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "investigacion",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 679
+    },
+    {
+      "caso": {
+        "entrada": "Busca en internet las últimas novedades de Hyprland",
+        "rol": "investigacion",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "investigacion",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 683
+    },
+    {
+      "caso": {
+        "entrada": "Explícame la segunda opción",
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": true
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": true
+      },
+      "ok": true,
+      "error": null,
+      "ms": 823
+    },
+    {
+      "caso": {
+        "entrada": "Resume la propuesta anterior",
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": true
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": true
+      },
+      "ok": true,
+      "error": null,
+      "ms": 793
+    },
+    {
+      "caso": {
+        "entrada": "Por qué elegiste esa alternativa",
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": true
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": true
+      },
+      "ok": true,
+      "error": null,
+      "ms": 797
+    },
+    {
+      "caso": {
+        "entrada": "Qué ventajas tiene la primera opción",
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": true
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": true
+      },
+      "ok": true,
+      "error": null,
+      "ms": 811
+    },
+    {
+      "caso": {
+        "entrada": "Prepara un script para esa organización",
+        "rol": "desarrollo",
+        "modo": "preparar",
+        "continuar": true
+      },
+      "salida": {
+        "rol": "desarrollo",
+        "modo": "preparar",
+        "continuar": true
+      },
+      "ok": true,
+      "error": null,
+      "ms": 777
+    },
+    {
+      "caso": {
+        "entrada": "Escribe el código para la segunda opción",
+        "rol": "desarrollo",
+        "modo": "preparar",
+        "continuar": true
+      },
+      "salida": {
+        "rol": "desarrollo",
+        "modo": "preparar",
+        "continuar": true
+      },
+      "ok": true,
+      "error": null,
+      "ms": 801
+    },
+    {
+      "caso": {
+        "entrada": "Corrige el script anterior para conservar las extensiones",
+        "rol": "desarrollo",
+        "modo": "preparar",
+        "continuar": true
+      },
+      "salida": {
+        "rol": "desarrollo",
+        "modo": "preparar",
+        "continuar": true
+      },
+      "ok": true,
+      "error": null,
+      "ms": 811
+    },
+    {
+      "caso": {
+        "entrada": "Explica el resultado anterior con menos palabras",
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": true
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": true
+      },
+      "ok": true,
+      "error": null,
+      "ms": 794
+    },
+    {
+      "caso": {
+        "entrada": "No cierres Spotify, explícame cómo pausarlo",
+        "rol": "cotidiano",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 678
+    },
+    {
+      "caso": {
+        "entrada": "Explícame qué pasa si apago el sistema",
+        "rol": "cotidiano",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "cotidiano",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 672
+    },
+    {
+      "caso": {
+        "entrada": "No cambies archivos, solo compara los datos de /tmp/limits-demo",
+        "rol": "analisis",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "analisis",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 635
+    },
+    {
+      "caso": {
+        "entrada": "Recomienda cómo organizar /tmp/limits-demo sin ejecutar cambios",
+        "rol": "analisis",
+        "modo": "leer"
+      },
+      "salida": {
+        "rol": "analisis",
+        "modo": "leer",
+        "continuar": false
+      },
+      "ok": true,
+      "error": null,
+      "ms": 648
+    }
+  ]
+}

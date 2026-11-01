@@ -1,0 +1,32 @@
+{
+  "prompt_raw_bytes": 6737,
+  "prompt_rendered_empty_memory_bytes": 7475,
+  "catalogo_list_running": "accion_desconocida",
+  "confirm_sin_evidencia": true,
+  "memoria_llm_sin_peticion": true,
+  "tv_enums": {
+    "next": true,
+    "rewind": false,
+    "volume_mute": false
+  },
+  "tv_objetivo_inexistente": "Sala",
+  "allowlist_borrado_rama": [
+    "git",
+    "branch",
+    "-D",
+    "rama-de-prueba"
+  ],
+  "memoria_hecho_grande_bloque": "",
+  "rutas_colision": {
+    "recuerda que mi proyecto es investigación": [
+      "research",
+      "recuerda que mi proyecto es investigación"
+    ],
+    "abre el archivo ~/Documentos/investigacion.pdf": [
+      "research",
+      "abre el archivo ~/Documentos/investigacion.pdf"
+    ]
+  },
+  "smoke_hora": "Son las 21:06.",
+  "smoke_sin_llm": true
+}

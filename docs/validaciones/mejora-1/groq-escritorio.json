@@ -1,0 +1,9 @@
+{
+  "modelo": "openai/gpt-oss-120b",
+  "respuesta": "Archivo informe.txt copiado a <temporal>/destino/informe.txt.",
+  "copia_correcta": true,
+  "segundos": 4.2,
+  "acciones_adicionales_observadas": [
+    "open_file del archivo temporal, además de buscar y copiar"
+  ]
+}

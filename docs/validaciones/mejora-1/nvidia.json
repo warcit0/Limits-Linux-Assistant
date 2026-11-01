@@ -1,0 +1,16 @@
+{
+  "respuesta": "Informe.txt copiado a <temporal>/destino/informe.txt",
+  "modelo": "nvidia/nemotron-3.5-bolt-e4b",
+  "thinking": true,
+  "copia_correcta": true,
+  "segundos": 25.14,
+  "procedimiento": "DesktopAgent real, FileCommands real, archivos temporales sintéticos, grupo configurado DeepSeek→Nemotron. DeepSeek agotó la espera; Nemotron completó búsqueda y copia. El path guard bloqueó el primer intento de copiar sin observar.",
+  "deepseek": "ReadTimeout; comprobaciones separadas con 8, 20 y 45 segundos de espera sin obtener respuesta útil.",
+  "rotacion_automatica": "Pruebas deterministas A→B→A, fallo A→B, ambos fallidos, enfriamiento, Retry-After y cancelación sin suplente.",
+  "limitaciones": [
+    "DeepSeek pendiente de respuesta real.",
+    "Gemdev NOT_SIGNED_IN.",
+    "Nemotron no completó de forma autónoma la preparación/prueba/aplicación de scripts; nuevo modo por objetivos desactivado.",
+    "Barge-in local durante inferencia pendiente de aceptación manual."
+  ]
+}

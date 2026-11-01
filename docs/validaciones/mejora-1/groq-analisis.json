@@ -1,0 +1,15 @@
+{
+  "modelo": "openai/gpt-oss-120b",
+  "analisis": {
+    "peticion": "Analiza ingresos y gastos en <temporal>/datos y explica el saldo sin modificar nada.",
+    "respuesta": "El archivo presupuesto.txt indica que los ingresos son 100 euros y los gastos 40 euros, lo que produce un saldo de 60 euros. El saldo positivo muestra que los ingresos superan a los gastos en 60 euros.",
+    "estado": "terminada",
+    "rol": "analisis",
+    "segundos": 4.3,
+    "respaldo_existe": false,
+    "herramientas": [
+      "listar_carpeta",
+      "leer_archivo"
+    ]
+  }
+}

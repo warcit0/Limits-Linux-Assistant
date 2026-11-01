@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "respuesta_recibida": true,
+  "estados": [
+    "oculto",
+    "pensando",
+    "hablando"
+  ],
+  "niveles_distintos": 34,
+  "interfaz_independiente": true,
+  "episodios_sinteticos_aislados": 2
+}

@@ -1,0 +1,17 @@
+# Nunca subir a GitHub
+.env
+*.onnx
+*.onnx.json
+logs/
+__pycache__/
+*.pyc
+limits-env/
+*.wav
+*.mp3
+.bin
+
+# builds android
+clients/android/local.properties
+clients/android/.gradle/
+clients/android/build/
+clients/android/app/build/

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# share-apk — sirve el APK de la app Android por la LAN (descarga desde el móvil).
+# Uso: share-apk [--port 9090] [--apk ruta/al.apk] [--no-qr]
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec "$ROOT/limits-env/bin/python" "$ROOT/scripts/share_apk.py" "$@"
