@@ -26,7 +26,8 @@ interrupción local, foco y consumo; sin prueba manual de micrófono ni varios m
 ## Mejora 5 — Ejecución y conversación coherentes
 
 [Plan de implementación](../plan-mejora-5-ejecucion-coherente.md) y
-[tarea](mejora-5-ejecucion-coherente.md): propuestos, pendientes de aprobación.
+[tarea](mejora-5-ejecucion-coherente.md): implementados y activados; evaluación real con fallos.
+La mejora 6 propone sustituir el recorrido cotidiano remoto.
 Corrige el recorrido cotidiano tras los fallos de conversación de la mejora 4.
 Validación acotada, sin comparativas de modelos.
 
@@ -73,3 +74,10 @@ Plan: [plan-p2-pantalla-workspaces-sesion.md](../plan-p2-pantalla-workspaces-ses
 - Export a Obsidian → fase 2 de P0-3.
 - Postgres / sincronización multi-dispositivo → descartado, ver decisión en el
   plan maestro.
+
+## Mejora 6 — Qwen como asistente cotidiano local
+
+[Plan](../plan-mejora-6-qwen-local.md) y [tarea](mejora-6-qwen-local.md):
+propuestos, pendientes de aprobación. Sustituyen la dirección cotidiana remota de
+la mejora 5, implementada y activada pero con fallos en la evaluación real del usuario.
+No ejecutar pruebas ni activar cambios durante la preparación del plan.
