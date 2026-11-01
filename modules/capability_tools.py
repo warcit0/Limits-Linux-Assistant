@@ -91,7 +91,7 @@ class Capacidades:
             raise ValueError("Indica texto no vacío de hasta 2000 caracteres.")
         if nombre == "consultar_escritorio" and parametros.get("workspace") and not re.fullmatch(r"(?:[0-9]|10|actual)",parametros["workspace"]):
             raise ValueError("workspace debe ser actual o un destino numérico de 0 a 10; 0 equivale a 10.")
-        if nombre == 'consultar_escritorio' and getattr(tarea,'cotidiano_local',False) and parametros.get('workspace'):
+        if nombre == 'consultar_escritorio' and getattr(tarea,'cotidiano_local',False) and not getattr(tarea,'conversacional',False) and parametros.get('workspace'):
             from modules.operation_intent import espacio_consultado
             from commands.workspaces import normalizar_destino
             solicitado = espacio_consultado(tarea.objetivo)

@@ -26,14 +26,14 @@ class Config:
     AGENT_ENABLED: bool = _env_bool("AGENT_ENABLED")
     # Un selector evita combinar coordinadores incompatibles.
     AGENT_MODE: str = os.getenv("AGENT_MODE", "legacy").strip().lower()
-    if AGENT_MODE not in {"legacy", "local"}:
-        raise ValueError("AGENT_MODE debe ser local o legacy.")
+    if AGENT_MODE not in {"legacy", "local", "conversacional"}:
+        raise ValueError("AGENT_MODE debe ser conversacional, local o legacy.")
     AGENT_COGNITIVE_FALLBACK_MODEL: str = os.getenv("AGENT_COGNITIVE_FALLBACK_MODEL", "openai/gpt-oss-20b").strip()
     AGENT_COGNITIVE_PROVIDER: str = os.getenv("AGENT_COGNITIVE_PROVIDER", "ollama").strip().lower()
     AGENT_LOCAL_PROPOSALS: bool = _env_bool("AGENT_LOCAL_PROPOSALS", "true")
     AGENT_COHERENT: bool = _env_bool("AGENT_COHERENT")
     AGENT_SEMANTIC: bool = _env_bool("AGENT_SEMANTIC")
-    if AGENT_MODE == "local":
+    if AGENT_MODE in {"local", "conversacional"}:
         AGENT_ENABLED = AGENT_SEMANTIC = AGENT_COHERENT = True
         AGENT_LOCAL_PROPOSALS = False
         AGENT_COGNITIVE_PROVIDER = "ollama"
@@ -81,6 +81,7 @@ class Config:
     OLLAMA_URL: str        = os.getenv("OLLAMA_URL", "http://localhost:11434")
     OLLAMA_MODEL: str      = os.getenv("OLLAMA_MODEL", "qwen2.5:3b-instruct")
     AGENT_CONVERSATION_MODEL: str = os.getenv("AGENT_CONVERSATION_MODEL", "").strip() or OLLAMA_MODEL
+    AGENT_DIALOGUE_TTL: int = max(60, min(86400, int(os.getenv("AGENT_DIALOGUE_TTL", "1800"))))
     # El router es 100 % local (decisión 2026-10-28): sin proveedor cloud.
     OLLAMA_NUM_CTX: int    = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
     OLLAMA_KEEP_ALIVE: str = os.getenv("OLLAMA_KEEP_ALIVE", "30m")

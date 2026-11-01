@@ -65,6 +65,8 @@ def print_banner(config: Config):
     )
     voz = f"piper + ElevenLabs({config.ELEVENLABS_MODE})" if eleven_on else "piper"
     llm_label = f"{config.OLLAMA_MODEL} (local)"
+    if getattr(config,'AGENT_MODE','legacy') == 'conversacional':
+        llm_label = f"conversación {config.AGENT_CONVERSATION_MODEL} · ejecución {config.OLLAMA_MODEL} (locales)"
     console.print(Panel.fit(
         f"[bold cyan]🤖 Limits LINUX[/bold cyan] [dim]{__version__} ({STATUS})[/dim]\n"
         f"[dim]LLM: {llm_label}[/dim]\n"
@@ -137,9 +139,10 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
         inicio_turno = time.monotonic()
         turno_id = uuid.uuid4().hex
         primer_texto = False
+        flujo_conversacional = False
 
         def progreso(evento):
-            nonlocal flujo, frases, primer_texto
+            nonlocal flujo, frases, primer_texto, flujo_conversacional
             if presencia and evento.get("type") == "status":
                 presencia.fase("investigando")
             from modules.streaming import FlujoVoz, FrasesProgresivas
@@ -148,6 +151,17 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                 return
             if on_progress:
                 on_progress(evento)
+            if evento.get('type') == 'speech':
+                voz = progress_voice if progress_voice is not None else tts if speak else None
+                if getattr(type(voz),'_listen',None) is not None:
+                    if flujo is None:
+                        terminar_escucha()
+                        flujo = FlujoVoz(voz,lambda:orchestrator.cancelar(session_id),vigente)
+                        flujo_conversacional = True
+                    flujo.decir(evento.get('text',''),tipo='intencion')
+                return
+            if evento.get('type') in {'status','delta'}:
+                flujo_conversacional = False
             if evento.get("type") == "delta" and not primer_texto:
                 primer_texto = True
                 log.info("turno=%s primer_texto_s=%.3f", turno_id, time.monotonic()-inicio_turno)
@@ -160,6 +174,8 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                 frases = FrasesProgresivas(flujo.decir)
                 flujo.decir("Voy investigando. Te contaré avances provisionales mientras contrasto las fuentes.", tipo="estado")
                 log.info("turno=%s primer_estado_s=%.3f", turno_id, time.monotonic() - inicio_turno)
+            if flujo is not None and frases is None and not flujo_conversacional:
+                frases = FrasesProgresivas(flujo.decir)
             if flujo is not None and evento.get("type") == "delta":
                 frases.recibir(evento.get("text", ""))
                 if frases.revisado:
@@ -192,8 +208,12 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
             if flujo is not None:
                 if not getattr(texto, "cancelada", False):
                     completo = getattr(texto, "completo", str(texto))
-                    frases.recibir(completo, final=True)
-                    if frases.revisado:
+                    if flujo_conversacional:
+                        from modules.voice_utils import clean_for_voice
+                        flujo.decir(clean_for_voice(completo))
+                    else:
+                        frases.recibir(completo, final=True)
+                    if not flujo_conversacional and frases.revisado:
                         flujo.descartar_pendientes()
                         flujo.decir("La respuesta final corrige o no confirma el avance anterior.")
                         from modules.voice_utils import clean_for_voice
@@ -226,7 +246,7 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
             from modules.workspace_router import match_workspace_route
             from modules.orchestrator import ruta_rapida_admisible
             workspace = match_workspace_route(user_input) if ruta_rapida_admisible(user_input) else None
-            if workspace and not (orchestrator is not None and getattr(orchestrator.config,"AGENT_MODE","legacy") == "local"):
+            if workspace and not (orchestrator is not None and getattr(orchestrator.config,"AGENT_MODE","legacy") in {"local","conversacional"}):
                 if orchestrator is not None:
                     orchestrator.invalidar(session_id)
                 executor.cancel_pending()
@@ -259,8 +279,12 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                 reproductor = referente[0] if referente and time.monotonic()-referente[1] < 300 and referente[2] == turn_generation else None
 
                 # En local, atajos y Qwen comparten compilación, ejecutor y recibos.
-                if (getattr(orchestrator.config,"AGENT_MODE","legacy") == "local"
+                if (getattr(orchestrator.config,"AGENT_MODE","legacy") in {"local","conversacional"}
                         and executor._pending_action is None):
+                    voz_espera = progress_voice if progress_voice is not None else tts if speak else None
+                    if voz_espera is tts and getattr(type(tts),'iniciar_espera',None) is not None:
+                        tts.iniciar_espera(lambda:orchestrator.cancelar(session_id))
+                        escucha_activa = True
                     response_text = orchestrator.atender(user_input, sesion=session_id,
                         generacion=turn_generation, on_event=progreso)
                     intent = "agent"

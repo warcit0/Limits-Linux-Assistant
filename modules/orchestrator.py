@@ -135,6 +135,7 @@ class Orquestador:
             "analisis": ProveedorOpenCode(config.AGENT_OPENCODE_BIN, config.AGENT_ANALYSIS_MODEL,
                                           self.almacen.directorio / "proveedores"),
         }
+        self.proveedores.setdefault("conversacion", ProveedorOllama(config))
         if proveedores is None:
             remotos = remoto or crear_respaldos(config)
             if config.AGENT_REMOTE_PROVIDER == "opencode_con_respaldo":
@@ -146,7 +147,7 @@ class Orquestador:
                                          for rol, lista in remotos.items()})
             elif config.AGENT_REMOTE_PROVIDER != "opencode":
                 raise ValueError("AGENT_REMOTE_PROVIDER debe ser opencode_con_respaldo, opencode o nvidia.")
-        if proveedores is None and self.semantico_config(config) and getattr(config, "AGENT_MODE", "legacy") != "local":
+        if proveedores is None and self.semantico_config(config) and getattr(config, "AGENT_MODE", "legacy") not in {"local","conversacional"}:
             if config.AGENT_COGNITIVE_PROVIDER == "groq":
                 from modules.agent_providers import crear_cotidiano
                 self.proveedores["cotidiano"] = crear_cotidiano(config)
@@ -155,6 +156,8 @@ class Orquestador:
         self.prompt_router = (PROMPTS / "agent_router.txt").read_text()
         self.prompt_worker = (PROMPTS / "agent_worker.txt").read_text()
         self.prompt_chat = (PROMPTS / "agent_chat.txt").read_text()
+        self.prompt_conversacion = (PROMPTS / "agent_conversation.txt").read_text()
+        self.prompt_ejecutor = (PROMPTS / "agent_executor.txt").read_text()
         self.prompt_local = (PROMPTS / "agent_local.txt").read_text()
         self.semantico = bool(getattr(config, "AGENT_SEMANTIC", False))
         if self.semantico:
@@ -263,7 +266,7 @@ class Orquestador:
             log.warning("proveedor falló: %s", type(error).__name__)
             raise ErrorProveedor("No pude consultar al especialista ahora.") from None
         self._comprobar(tarea)
-        self._trazar(tarea,"inferencia",rol=rol,segundos=round(time.monotonic()-inicio,3),proveedor=getattr(proveedor,"modelo",type(proveedor).__name__))
+        self._trazar(tarea,"inferencia",rol=rol,segundos=round(time.monotonic()-inicio,3),proveedor=self.config.AGENT_CONVERSATION_MODEL if rol=='conversacion' else getattr(proveedor,"modelo",type(proveedor).__name__))
         log.info("modelo rol=%s segundos=%.3f", rol, time.monotonic() - inicio)
         if not isinstance(resultado, dict):
             raise ErrorProveedor("El modelo devolvió una decisión inválida.")
@@ -272,7 +275,7 @@ class Orquestador:
     def atender(self, entrada, sesion="local", generacion=None, on_event=None, propuesta_local=None):
         from modules.workspace_router import normalizar_orden
         limpio = normalizar_orden(entrada)
-        if re.search(r"\bpantalla\b", limpio) and re.search(r"\b(ves|ver|viendo|mira|muestrame|que hay)\b", limpio) and not re.search(r"captura|pantallazo|screenshot|spotify|aplicacion", limpio):
+        if getattr(self.config,'AGENT_MODE','legacy') != 'conversacional' and re.search(r"\bpantalla\b", limpio) and re.search(r"\b(ves|ver|viendo|mira|muestrame|que hay)\b", limpio) and not re.search(r"captura|pantallazo|screenshot|spotify|aplicacion", limpio):
             self.invalidar(sesion)
             self.executor.cancel_pending()
             texto = "Todavía no tengo acceso visual a tu pantalla. Puedo consultar las aplicaciones abiertas o puedes describirme lo que necesitas revisar. ¿Qué prefieres?"
@@ -289,6 +292,12 @@ class Orquestador:
         if self.semantico and anterior and not anterior.semantica:
             anterior = None
         intent = decision_confirmacion(entrada)
+        if (getattr(self.config,'AGENT_MODE','legacy') == 'conversacional'
+                and intent == 'confirmar' and not (anterior and anterior.pendiente and anterior.estado == 'aprobacion')
+                and limpio not in {'confirmar','confirmo','confirma'}):
+            # «Adelante» puede responder a una propuesta conversacional. Solo una
+            # aprobación vigente entra al mecanismo de efectos sensibles.
+            intent = None
         if intent == "cancelar":
             self.cancelar(sesion)
             self.executor.cancel_pending()
@@ -590,8 +599,11 @@ class Orquestador:
         if not isinstance(parametros,dict) or accion not in self.herramientas.catalogo(tarea):
             raise ValueError("La capacidad no está disponible para este objetivo.")
         if getattr(tarea, "cotidiano_local", False):
-            from modules.local_permissions import autorizar
-            autorizar(tarea, accion, parametros, self.herramientas)
+            from modules.local_permissions import autorizar, autorizar_capacidad
+            if getattr(tarea,'conversacional',False):
+                autorizar_capacidad(tarea,accion,parametros)
+            else:
+                autorizar(tarea, accion, parametros, self.herramientas)
             tarea.autorizaciones_semanticas[huella_autorizacion(tarea,accion,parametros)] = True
             return
         if getattr(tarea,"coherente",False):
@@ -689,7 +701,7 @@ class Orquestador:
             tarea.objetivo = entrada
             tarea.entidades = {}
         tarea.dialogo = (tarea.dialogo + [{"usuario": entrada},
-                         {"asistente": str(respuesta) if getattr(respuesta, "ok", None) is not False else "El turno anterior no se completó; consultar de nuevo antes de afirmar resultados."}])[-8:]
+                         {"asistente": str(respuesta) if getattr(respuesta, "ok", None) is not False else "El turno anterior no se completó; consultar de nuevo antes de afirmar resultados."}])[-10:]
         self.almacen.guardar(tarea)
         if self.conocimiento:
             self.conocimiento.registrar_resultado(entrada, getattr(respuesta, "acciones", []), completado=getattr(respuesta,"ok",None) is True)
@@ -835,6 +847,7 @@ class Orquestador:
         return {"pasos": estado["pasos"] + pasos, "terminado": tarea.estado != "trabajando"}
 
     def _ejecutar(self, tarea, accion, parametros, *, aprobado=False):
+        from modules.local_permissions import requiere_confirmacion
         inicio_herramienta = time.monotonic()
         evento, _ = self._comprobar(tarea)
         try:
@@ -857,7 +870,7 @@ class Orquestador:
                 raise ValueError("Ese efecto ya se intentó en esta tarea; consulta el estado real antes de decidir otro paso.")
             if previo and accion not in LECTURAS | {"listar_carpeta", "leer_archivo", "probar_script"}:
                 resultado = previo.get("resultado") or {"ok": False, "error": "Operación interrumpida: comprueba el estado real antes de repetirla."}
-            elif accion in SENSIBLES and not aprobado:
+            elif (accion in SENSIBLES or getattr(tarea,'conversacional',False) and requiere_confirmacion(accion,parametros)) and not aprobado:
                 tarea.pendiente = {"accion": accion, "parametros": parametros,
                                    "revision": tarea.revision, "tarea": tarea.id, "creado": time.time()}
                 if accion == "aplicar_script":
@@ -877,7 +890,9 @@ class Orquestador:
                 else:
                     propuesta = {"shutdown": "Apagar el equipo.", "reboot": "Reiniciar el equipo.",
                                  "move_file": f"Mover {parametros.get('source', '')} a {parametros.get('destination', '')}.",
-                                 "rename_file": f"Renombrar {parametros.get('path', '')} como {parametros.get('new_name', '')}."}[accion]
+                                 "rename_file": f"Renombrar {parametros.get('path', '')} como {parametros.get('new_name', '')}.",
+                                 "tv_cast": f"Enviar {parametros.get('query') or parametros.get('source') or 'el contenido actual'} a {parametros.get('target') or 'la televisión seleccionada'}.",
+                                 }[accion]
                 tarea.estado = "aprobacion"
                 tarea.respuesta = (propuesta + " "
                                    "Di «confirmar» para aplicar este plan o «cancelar». ")
@@ -896,6 +911,11 @@ class Orquestador:
                 self.almacen.guardar(tarea)
             tarea.historial.append({"herramienta": accion, "parametros": parametros, "resultado": resultado})
             tarea.historial = tarea.historial[-16:]
+            if accion == 'forget' and resultado.get('ok') and resultado.get('verificado'):
+                tarea.memorias=[]
+                tarea.dialogo=[]
+                tarea.entidades['memoria_olvidada']=True
+                tarea.epoca_memoria=self.conocimiento.epoca() if self.conocimiento else 0
         except (ValueError, TypeError, OSError, SyntaxError, subprocess.SubprocessError) as error:
             tarea.historial.append({"herramienta": accion, "parametros": parametros, "error": str(error)[:400]})
         if tarea.semantica and tarea.historial and (tarea.historial[-1].get("error") or tarea.historial[-1].get("resultado", {}).get("ok") is False):

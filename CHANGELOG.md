@@ -6,6 +6,10 @@ cambios rompientes en cualquier release.
 
 ## [Unreleased]
 
+- Mejora 7: interlocutor local con diálogo/memoria, llamadas directas o encargos a Qwen,
+  resultados de vuelta a conversación y política por capacidades sin permisos léxicos.
+  Roles 3B/1.5B independientes; validación funcional pendiente, sin ejecutar pruebas.
+
 - Catálogo instalado y asociación XDG para abrir apps; sugerencias aproximadas sin
   ejecución implícita, protección de cobertura de órdenes/proyectos y control MPRIS
   con disponibilidad, cancelación, envío único y verificación posterior.

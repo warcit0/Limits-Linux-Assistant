@@ -122,6 +122,8 @@ class HerramientasTarea:
             if getattr(tarea,"cotidiano_local",False) and tarea.rol == "cotidiano":
                 comunes.update({'youtube_play','web_search','focus_window'})
                 comunes.discard('consultar_ventanas')  # consultar_escritorio ya obtiene ventanas, foco y especiales.
+                if getattr(tarea,'conversacional',False):
+                    comunes.update({'buscar_memoria','memory_recall','memory_list','memory_stats','remember','forget'})
                 from commands.apps import AppCommands
                 if not AppCommands.disponibles():
                     comunes -= {'open_application','close_application','focus_window'}
@@ -276,7 +278,9 @@ class HerramientasTarea:
                 if isinstance(valor, str) and ((not valor.strip() and not (nombre == "remember" and campo == "key")) or len(valor) > 4000):
                     raise ValueError(f"El parámetro {campo} debe ser texto no vacío de hasta 4000 caracteres.")
         prueba = tarea.semantica and tarea.autorizaciones_semanticas.get(huella_autorizacion(tarea,nombre,parametros)) is True
-        veredicto = check(nombre, parametros, tarea.objetivo, self.executor.action_map, semantic_evidence=prueba)
+        # En conversación la intención la decide el interlocutor. Grounding conserva
+        # catálogo/enums; no vuelve a interpretar frases mediante hints/exclusiones.
+        veredicto = check(nombre, parametros, '' if getattr(tarea,'conversacional',False) else tarea.objetivo, self.executor.action_map, semantic_evidence=prueba)
         if not veredicto.ok:
             raise ValueError("La acción no tiene evidencia en el objetivo autorizado.")
         for campo in ("path", "source", "destination"):

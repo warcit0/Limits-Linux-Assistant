@@ -180,3 +180,34 @@ def validar_delegacion(entrada, rol):
     analisis = re.search(r'\b(documentos?|informe|compara\w*|analiza\w*|analisis|explica\w*)\b',t)
     if not {'desarrollo':desarrollo,'investigacion':actual,'analisis':analisis or len(entrada)>1800}.get(rol):
         raise ValueError('Esta petición es cotidiana. Usa las herramientas locales o aclara el dato que falta; no la delegues por un fallo.')
+
+
+def autorizar_capacidad(tarea, accion, parametros):
+    """Política de efectos: no reinterpreta la orden con verbos o patrones."""
+    from modules.task_tools import LECTURAS, SENSIBLES
+    cotidianas = {'open_application','close_application','focus_window','set_volume',
+        'set_brightness','media_control','lock_screen','workspace_switch','workspace_back',
+        'workspace_move','abrir_aplicacion','enfocar_ventana','mover_ventana',
+        'cerrar_ventana','ocultar_especial','abrir_proyecto','open_file','reveal_file',
+        'spotify_play','spotify_reproducir','spotify_control','youtube_play','web_search',
+        'open_url','copy_file','tv_cast','tv_control','preparar_script'}
+    if accion in LECTURAS | SENSIBLES | cotidianas | {'listar_carpeta','leer_archivo','probar_script'}:
+        if accion=='abrir_aplicacion':
+            app=tarea.entidades.get('aplicaciones',{}).get(parametros.get('id'),{})
+            if app.get('aproximada'):
+                raise ValueError('Es una sugerencia aproximada. Pide el nombre correcto y vuelve a buscarlo antes de abrir.')
+        return
+    if accion in {'remember','forget'}:
+        # La memoria personal sigue exigiendo una petición explícita. No aprender
+        # inferencias del interlocutor ni instrucciones encontradas en documentos.
+        from modules.memory_router import match_memory_route
+        orden=match_memory_route(tarea.objetivo)
+        if orden and orden.get('action')==accion and orden.get('params',{})==parametros:
+            return
+        raise ValueError('Para guardar u olvidar un hecho personal hace falta una petición explícita del usuario.')
+    raise ValueError('Esta capacidad no tiene una política de efectos habilitada. Usa las herramientas acotadas o el flujo de scripts con confirmación.')
+
+
+def requiere_confirmacion(accion, parametros):
+    """Riesgos adicionales del modo conversacional, a partir del efecto real."""
+    return accion == 'tv_cast'

@@ -50,6 +50,8 @@ class Tarea:
     plan_resultados: list = field(default_factory=list)
     coherente: bool = False
     cotidiano_local: bool = False
+    conversacional: bool = False
+    encargo: str = ""
     semantica: bool = False
     autorizaciones_semanticas: dict = field(default_factory=dict)
     limitacion_rechazada: bool = False

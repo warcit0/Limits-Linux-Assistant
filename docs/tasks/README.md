@@ -81,3 +81,9 @@ Plan: [plan-p2-pantalla-workspaces-sesion.md](../plan-p2-pantalla-workspaces-ses
 implementados con aceptación funcional pendiente. Sustituyen la dirección cotidiana remota de
 la mejora 5, implementada y activada pero con fallos en la evaluación real del usuario.
 No ejecutar pruebas sin nueva autorización. Véase la tarea para estado de activación y pendientes de Spotify.
+
+
+## Mejora 7 — Interlocutor y ejecución por capacidades
+
+[Plan](../plan-mejora-7-interlocutor.md) y [tarea](mejora-7-interlocutor.md).
+Implementación autorizada; revisión estática y activación, aceptación por voz pendiente.

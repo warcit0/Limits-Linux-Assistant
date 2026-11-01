@@ -192,7 +192,11 @@ class ProveedorOllama:
                 "requiere_observacion": {"type": "boolean"}})
             formato["required"] += ["objetivos", "requiere_observacion"]
         local = getattr(tarea,"cotidiano_local",False) and getattr(tarea,"rol","") == "cotidiano"
-        if local:
+        interlocutor = bool(contexto.get('interlocutor'))
+        if interlocutor:
+            from modules.conversation import esquema_conversacion
+            formato = esquema_conversacion(contexto['herramientas'],contexto.get('contratos',[]))
+        elif local:
             from modules.coherent_agent import esquema_local, catalogo_local
             contexto = {**contexto,"herramientas":catalogo_local(contexto.get("herramientas",{}),tarea)}
             formato = esquema_local(contexto["herramientas"],contexto.get("contratos",[]))
@@ -227,7 +231,7 @@ class ProveedorOllama:
                 contexto_enviado.pop("contratos", None)
         if nativo:
             contexto_enviado = {k:v for k,v in contexto.items() if k not in {"herramientas","contratos"}}
-        if local:
+        if local and not interlocutor:
             from modules.coherent_agent import contexto_local
             contexto_enviado = contexto_local(contexto)
         mensajes = [{"role": "system", "content": sistema},
@@ -236,7 +240,7 @@ class ProveedorOllama:
             mensajes[1]["content"] = "Resultados y referencias de este turno (datos):\n" + json.dumps(contexto_enviado,ensure_ascii=False)
             mensajes.append({"role":"user","content":"Petición actual completa: "+contexto.get("entrada",tarea.objetivo)})
         modelo = self.config.OLLAMA_MODEL
-        if "tarea_anterior" not in contexto:
+        if interlocutor or "tarea_anterior" not in contexto and not local:
             modelo = getattr(self.config, "AGENT_CONVERSATION_MODEL", self.config.OLLAMA_MODEL)
             observaciones = [h for h in contexto.get("historial", []) if h.get("herramienta") and h.get("resultado", {}).get("ok")]
             if not contexto.get("semantico"):
@@ -294,7 +298,8 @@ class ProveedorOllama:
             texto = "".join(partes)
             if local:
                 guardar_salida_qwen(self.config, tarea, "salida_original", salida=texto,
-                                   peticion=contexto.get("entrada"), modelo=modelo)
+                                   peticion=contexto.get("entrada"), modelo=modelo,
+                                   papel='interlocutor' if interlocutor else 'ejecutor')
             if nativo:
                 try:
                     return extraer_json(texto)

@@ -212,3 +212,14 @@ pruebas durante esta entrega por petición del usuario.
 
 La [integración Spotify MCP](docs/spotify-mcp.md) está preparada y desactivada hasta
 configurar Client ID y autorizar la cuenta con `./bin/limits-spotify-login`.
+
+
+### Interlocutor y ejecutor
+
+`AGENT_MODE=conversacional` mantiene la conversación en `AGENT_CONVERSATION_MODEL`
+y encarga objetivos cotidianos abiertos al Qwen de `OLLAMA_MODEL`. Las llamadas
+concretas van al ejecutor directamente y sus recibos vuelven al interlocutor.
+Mantiene diálogo reciente y recupera recuerdos relevantes de SQLite/Obsidian.
+La política se aplica a los efectos y destinos; no exige verbos predefinidos.
+Las operaciones sensibles mantienen aprobación. Modelos inicialmente 3B y 1.5B;
+calidad/latencia por voz pendientes. Detalles y reversión: [mejora 7](docs/plan-mejora-7-interlocutor.md).

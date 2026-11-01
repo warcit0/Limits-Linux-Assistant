@@ -507,3 +507,30 @@ main.run_pipeline(user_input)
 - Multimedia espera disponibilidad/capacidad MPRIS, permite cancelación antes del envío,
   manda UN efecto y observa estado/identidad de pista después. No repetir ni cambiar
   reproductor/transporte por incertidumbre. Si no hay contenido/control, explicarlo.
+
+## 14. Interlocutor y ejecución (vigente, 2026-11-01)
+
+- El modo conversacional autorizado sustituye el recorrido de sección 13 al activarse:
+  AGENT_MODE=conversacional fuerza agent/semantic/coherent y proveedores cotidianos locales.
+  Interlocutor en AGENT_CONVERSATION_MODEL, ejecutor en OLLAMA_MODEL. Inicialmente 3B/1.5B
+  ya instalados; no atribuir entrenamiento ni calidad demostrada a esa selección.
+- Interlocutor primero en cada petición: chat/clarify, herramientas directas command o
+  encargo task. Dispatch por JSON sin traducción intermedia. Un único ciclo en coherent_agent;
+  conversation.py son contratos/contexto. Qwen recibe encargo y petición original completa.
+- Retorno de recibos al interlocutor para decidir/explicar. Diálogo reciente de la misma
+  sesión sin detector de referencias, pregunta pendiente y dos recuerdos confirmados.
+  No heredar permisos ni destinos observados; reobservar antes de actuar. Olvido limpia contexto.
+- En este modo local_permissions.autorizar_capacidad sustituye los permisos léxicos y
+  grounding no reinterpreta el lenguaje. Conserva firmas, tipos, enums, catálogo, rutas,
+  destinos observados, política de efectos, sandbox, confirmaciones y recibos. Los modelos
+  deciden intención; no anunciar comprensión universal ni seguridad basada solo en prompts.
+- Nuevas capacidades requieren declarar su política de efectos, no ejemplos de frases.
+  Memoria explícita conserva su control específico. No terminal libre. Copiar rechaza
+  destinos existentes; enviar contenido a TV requiere aprobación. Acciones cotidianas
+  acotadas pueden ejecutarse sin juez adicional.
+- La voz de intención usa el FlujoVoz existente y no acredita efectos. Confirmaciones,
+  efectos sensibles aprobados y Gemini conservan entrega directa; investigación jamás
+  vuelve como instrucciones a un ciclo ejecutable. Una charla afirmativa no aprueba cambios.
+- Plan/tarea: docs/plan-mejora-7-interlocutor.md y docs/tasks/mejora-7-interlocutor.md.
+  Mantener la restricción de NO ejecutar pruebas/probes/inferencias de aceptación.
+  Solo revisión estática/sintaxis y estado/arranque; aceptación por voz pendiente del usuario.
