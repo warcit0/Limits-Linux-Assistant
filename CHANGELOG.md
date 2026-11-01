@@ -6,6 +6,11 @@ cambios rompientes en cualquier release.
 
 ## [Unreleased]
 
+- Interlocutor: entrega final sin herramientas, sin repetir inferencias ante una
+  narración inválida; recibos conservados si falla la explicación. Operaciones
+  vinculadas a citas del usuario y foco sin apertura implícita. Diagnóstico privado
+  de tiempos de Ollama; revisión estática, sin pruebas funcionales ejecutadas.
+
 - Mejora 7: interlocutor local con diálogo/memoria, llamadas directas o encargos a Qwen,
   resultados de vuelta a conversación y política por capacidades sin permisos léxicos.
   Roles 3B/1.5B independientes; validación funcional pendiente, sin ejecutar pruebas.

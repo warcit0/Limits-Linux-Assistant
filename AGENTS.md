@@ -300,7 +300,8 @@ main.run_pipeline(user_input)
 - La wake word se filtra sobre la transcripción completa; `WAKE_WORD=Limits` añade
   variaciones "límites/limites" automáticamente en `main.py`.
 - `focus_window` consulta `hyprctl clients -j` antes de enfocar; si no existe la
-  ventana, abre la app vía `APP_MAP`.
+  ventana, informa del fallo sin abrir aplicaciones. El modo conversacional usa
+  únicamente `enfocar_ventana` con dirección observada.
 - `hyprctl`/`wpctl`/`playerctl` requieren sesión gráfica activa; bajo systemd user
   service el script ya exporta `WAYLAND_DISPLAY` y `XDG_RUNTIME_DIR`.
 - Los modelos de Whisper se descargan on-demand de HF en el primer arranque.
@@ -534,3 +535,22 @@ main.run_pipeline(user_input)
 - Plan/tarea: docs/plan-mejora-7-interlocutor.md y docs/tasks/mejora-7-interlocutor.md.
   Mantener la restricción de NO ejecutar pruebas/probes/inferencias de aceptación.
   Solo revisión estática/sintaxis y estado/arranque; aceptación por voz pendiente del usuario.
+
+### Cierre sin nuevas ejecuciones (2026-11-01)
+
+- Cada operación conversacional incluye solicitud, cita literal del fragmento de
+  la petición que atiende. Se conserva en el plan y se valida antes de ejecutar
+  el lote. La cita acredita procedencia textual; NO prueba pertinencia semántica
+  ni sustituye firmas, destinos observados, confirmaciones o política de efectos.
+- Las llamadas directas son lotes concretos. Tras un efecto directo, un lote final
+  o un informe del ejecutor, fase resultado: una inferencia de presentación SIN
+  herramientas ni catálogo. Solo chat/clarify, complete y response. Si falla,
+  entregar recibos sin reintentar la narración. Las tareas abiertas usan task y
+  conservan su ciclo de observación/ejecución antes de la entrega final.
+- complete en command declara cobertura prevista; en chat declara cobertura
+  interpretada tras recibos. No volver a ejecutar el lote para producir la voz.
+  La intención opcional de command solo se entrega tras validar todo el lote.
+- El catálogo conversacional ofrece un único contrato de foco por dirección
+  observada. Ningún foco abre apps ausentes, tampoco el handler heredado.
+- Los diagnósticos privados añaden tiempos de carga, evaluación de entrada y
+  generación informados por Ollama, y conteos de tokens. Sin inferencias de prueba.

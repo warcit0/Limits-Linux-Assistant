@@ -469,8 +469,14 @@ class Orquestador:
                 from modules.coherent_agent import resumen_resultados
                 comprobado = resumen_resultados(tarea)
                 if comprobado:
-                    tarea.respuesta = comprobado + " Quedan partes del objetivo sin comprobar."
-                    tarea.estado = "parcial"
+                    from modules.general_agent import resultados_turno
+                    hechos = resultados_turno(tarea)
+                    completo = (getattr(tarea,'conversacional',False) and tarea.cobertura_completa
+                        and all(p['estado'] == 'completado' for p in tarea.plan_resultados)
+                        and all(not h.get('error') and h.get('resultado',{}).get('ok')
+                                and h['resultado'].get('verificado') for h in hechos))
+                    tarea.respuesta = comprobado if completo else comprobado + " No he podido confirmar el objetivo completo."
+                    tarea.estado = "terminada" if completo else "parcial"
             elif tarea.semantica:
                 from modules.general_agent import resultados_turno
                 ciertos = [str(h["resultado"].get("datos", "")) for h in resultados_turno(tarea) if h.get("resultado", {}).get("ok") and h["resultado"].get("verificado") and h["herramienta"] not in {"consultar_capacidades","consultar_ventanas","buscar_proyectos"}]

@@ -197,13 +197,17 @@ class ProveedorOllama:
             formato["required"] += ["objetivos", "requiere_observacion"]
         local = getattr(tarea,"cotidiano_local",False) and getattr(tarea,"rol","") == "cotidiano"
         interlocutor = bool(contexto.get('interlocutor'))
-        if interlocutor:
+        if contexto.get('presentar_resultados'):
+            from modules.conversation import esquema_presentacion
+            formato = esquema_presentacion()
+        elif interlocutor:
             from modules.conversation import esquema_conversacion
             formato = esquema_conversacion(contexto['herramientas'],contexto.get('contratos',[]))
         elif local:
             from modules.coherent_agent import esquema_local, catalogo_local
             contexto = {**contexto,"herramientas":catalogo_local(contexto.get("herramientas",{}),tarea)}
-            formato = esquema_local(contexto["herramientas"],contexto.get("contratos",[]))
+            formato = esquema_local(contexto["herramientas"],contexto.get("contratos",[]),
+                                    vincular=getattr(tarea,'conversacional',False))
         elif contexto.get("coherente"):
             from modules.coherent_agent import esquema_coherente
             formato = esquema_coherente(contexto.get("contratos",[]))
@@ -281,6 +285,7 @@ class ProveedorOllama:
         fin = time.monotonic() + timeout
         partes = []
         llamadas = []
+        metricas = {}
         try:
             try:
                 respuesta.raise_for_status()
@@ -296,6 +301,17 @@ class ProveedorOllama:
                     bloque = json.loads(linea)
                     if bloque.get("error"):
                         raise ErrorServidorLocal("Ollama no pudo generar la respuesta.")
+                    if local and bloque.get('done'):
+                        # Ollama informa nanosegundos; conservar solo medidas técnicas,
+                        # nunca el cuerpo del proveedor ni el contexto de la petición.
+                        for campo in ('load_duration','prompt_eval_duration','eval_duration','total_duration'):
+                            valor = bloque.get(campo)
+                            if type(valor) in (int,float) and valor >= 0:
+                                metricas[campo] = round(valor/1_000_000_000,3)
+                        for campo in ('prompt_eval_count','eval_count'):
+                            valor = bloque.get(campo)
+                            if type(valor) is int and valor >= 0:
+                                metricas[campo] = valor
                     llamadas.extend(bloque.get("message", {}).get("tool_calls") or [])
                     partes.append(bloque.get("message", {}).get("content", ""))
                     if sum(map(len, partes)) > 20000:
@@ -305,9 +321,13 @@ class ProveedorOllama:
                 return {"tipo": "herramienta", "accion": llamada.get("name"), "parametros": llamada.get("arguments", {})}
             texto = "".join(partes)
             if local:
+                if metricas:
+                    guardar_salida_qwen(self.config,tarea,'tiempos_inferencia',modelo=modelo,
+                                       papel='presentacion' if contexto.get('presentar_resultados') else 'interlocutor' if interlocutor else 'ejecutor',
+                                       metricas=metricas)
                 guardar_salida_qwen(self.config, tarea, "salida_original", salida=texto,
                                    peticion=contexto.get("entrada"), modelo=modelo,
-                                   papel='interlocutor' if interlocutor else 'ejecutor')
+                                   papel='presentacion' if contexto.get('presentar_resultados') else 'interlocutor' if interlocutor else 'ejecutor')
             if nativo:
                 try:
                     return extraer_json(texto)

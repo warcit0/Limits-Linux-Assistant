@@ -194,7 +194,7 @@ class SystemCommands:
             cliente = next((c for c in json.loads(r.stdout)
                             if self.coincide_clase(app, c) and c.get("mapped", True)), None)
             if cliente is None:
-                return AppCommands().open_app(app)
+                return ResultadoComando(f"No hay una ventana abierta de {app} para enfocar.", ok=False)
             direccion = cliente.get("address", "")
             if not re.fullmatch(r"0x[0-9a-fA-F]+", direccion):
                 raise ValueError("La ventana no tiene una dirección válida.")

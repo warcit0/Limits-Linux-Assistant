@@ -17,9 +17,13 @@ def texto(respuesta, intent='chat', complete=True):
     return {'intent':intent,'operations':[],'complete':complete,'response':respuesta}
 
 
-def lote(accion, parametros):
-    return {'intent':'command','operations':[{'action':accion,'params':parametros}],
-            'complete':True,'response':''}
+def lote(accion, parametros, solicitud, complete=True):
+    return {'intent':'command','operations':[{'action':accion,'params':parametros,'solicitud':solicitud}],
+            'complete':complete,'response':''}
+
+
+def entrega(respuesta, complete=True):
+    return {'intent':'chat','complete':complete,'response':respuesta}
 
 
 class TestInterlocutor(unittest.TestCase):
@@ -56,7 +60,7 @@ class TestInterlocutor(unittest.TestCase):
         self.assertEqual(self.cambios,[])
 
     def test_llamada_directa_regresa_al_interlocutor(self):
-        o=self.crear([lote('set_volume',{'level':35}),texto('Está al 35 %.')])
+        o=self.crear([lote('set_volume',{'level':35},'al treinta y cinco'),entrega('Está al 35 %.')])
         with patch('modules.local_permissions.autorizar',side_effect=AssertionError('No usar permisos léxicos')):
             r=o.atender('Déjalo un poco más bajo, al treinta y cinco')
         self.assertEqual(self.cambios,[35])
@@ -64,11 +68,14 @@ class TestInterlocutor(unittest.TestCase):
         self.assertFalse(self.ejecutor.consultas)
         resultados=self.interlocutor.consultas[-1][1]['resultados']
         self.assertTrue(resultados[0]['resultado']['verificado'])
+        self.assertTrue(self.interlocutor.consultas[-1][1]['presentar_resultados'])
+        self.assertNotIn('herramientas',self.interlocutor.consultas[-1][1])
+        self.assertEqual(len(self.interlocutor.consultas),2)
 
     def test_encargo_y_avance_sin_otro_coordinador(self):
-        ejecutor=ProveedorFalso(lote('set_volume',{'level':20}))
+        ejecutor=ProveedorFalso(lote('set_volume',{'level':20},'Déjalo al veinte'))
         o=self.crear([{'intent':'task','goal':'Bajar el volumen al 20 %.','response':'Voy a ajustarlo.'},
-                      texto('Ya está al 20 %.')],ejecutor)
+                      entrega('Ya está al 20 %.')],ejecutor)
         eventos=[]
         r=o.atender('Déjalo al veinte',on_event=eventos.append)
         self.assertEqual(self.cambios,[20])
@@ -88,7 +95,8 @@ class TestInterlocutor(unittest.TestCase):
         self.assertEqual(c['dialogo'][0]['usuario'],'Ayúdame a concentrarme')
 
     def test_sensible_pide_confirmacion_sin_ejecutar(self):
-        o=self.crear([lote('consultar_capacidades',{'categoria':'sistema'}),lote('shutdown',{})])
+        o=self.crear([lote('consultar_capacidades',{'categoria':'sistema'},'Apaga el equipo',False),
+                      lote('shutdown',{},'Apaga el equipo')])
         r=o.atender('Apaga el equipo')
         self.assertIn('confirmar',r)
         self.assertEqual(self.ex.apagados,0)
@@ -104,11 +112,40 @@ class TestInterlocutor(unittest.TestCase):
             self.cambios.append(level)
             return ResultadoComando('Solicitud enviada.',ok=True,verificado=False)
         self.ex.action_map['set_volume']=incierto
-        o=self.crear([lote('set_volume',{'level':20}),lote('set_volume',{'level':20}),
-                      texto('Lo solicité, pero no pude comprobar el cambio.',complete=False)])
+        o=self.crear([lote('set_volume',{'level':20},'Baja al veinte'),
+                      entrega('Lo solicité, pero no pude comprobar el cambio.',complete=False)])
         r=o.atender('Baja al veinte')
         self.assertEqual(self.cambios,[20])
         self.assertIsNone(r.ok)
+
+    def test_entrega_no_repite_efectos_ni_reintenta_inferencias(self):
+        repetido=lote('set_volume',{'level':20},'Baja al veinte')
+        o=self.crear([repetido,repetido])
+        r=o.atender('Baja al veinte')
+        self.assertEqual(self.cambios,[20])
+        self.assertEqual(len(self.interlocutor.consultas),2)
+        self.assertIn('comprobado',str(r))
+        self.assertNotIn('Quedan partes',str(r))
+        self.assertTrue(r.ok)
+
+    def test_efecto_directo_incompleto_tambien_entrega_sin_replanificar(self):
+        o=self.crear([lote('set_volume',{'level':20},'Baja al veinte',False),
+                      entrega('Volumen ajustado y comprobado.')])
+        o.atender('Baja al veinte')
+        self.assertEqual(self.cambios,[20])
+        self.assertEqual(len(self.interlocutor.consultas),2)
+
+    def test_cita_inventada_no_ejecuta(self):
+        d=lote('set_volume',{'level':20},'baja el volumen')
+        o=self.crear([d,d])
+        o.atender('Hola')
+        self.assertEqual(self.cambios,[])
+
+    def test_catalogo_conversacional_solo_enfoca_direcciones_observadas(self):
+        o=self.crear([])
+        t=Tarea('s','Llévame al editor',modo='actuar',semantica=True,
+                coherente=True,cotidiano_local=True,conversacional=True)
+        self.assertNotIn('focus_window',o.herramientas.catalogo(t))
 
     def test_politica_y_destino_separados_del_lenguaje(self):
         t=Tarea('s','Me cuesta escucharlo',conversacional=True)

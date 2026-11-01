@@ -14,3 +14,12 @@ Respaldo previo enviado a main: `8c0cfc1`.
 - [ ] Aceptación funcional por voz y latencia: pendiente del usuario.
 
 No contar una sintaxis válida o un servicio arrancado como aceptación funcional.
+
+### Seguimiento del diagnóstico de los turnos reales
+
+- [x] Entrega sin catálogo ni nuevas acciones; fallback a recibos sin reintento.
+- [x] Citas por operación, distinción de lote directo y tarea abierta.
+- [x] Foco sin lanzamiento implícito y un solo contrato conversacional observado.
+- [x] Registro privado de métricas de inferencia para los turnos reales.
+- [x] Regresiones simuladas adaptadas y preparadas, sin ejecutar.
+- [ ] Aceptación funcional y latencia por el usuario; no correr pruebas.

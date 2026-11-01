@@ -124,6 +124,8 @@ class HerramientasTarea:
                 comunes.discard('consultar_ventanas')  # consultar_escritorio ya obtiene ventanas, foco y especiales.
                 if getattr(tarea,'conversacional',False):
                     comunes.update({'buscar_memoria','memory_recall','memory_list','memory_stats','remember','forget'})
+                    # Un solo contrato de foco: dirección observada, sin lanzar apps.
+                    comunes.discard('focus_window')
                 from commands.apps import AppCommands
                 if not AppCommands.disponibles():
                     comunes -= {'open_application','close_application','focus_window'}

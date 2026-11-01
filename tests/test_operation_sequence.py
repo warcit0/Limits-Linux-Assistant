@@ -144,6 +144,13 @@ class TestSecuenciaOperativa(unittest.TestCase):
         self.assertTrue(r.verificado)
         self.assertEqual(self.estado['active'], '0xc')
 
+    def test_enfocar_ausente_no_abre_aplicacion(self):
+        from commands.system import SystemCommands
+        with mock.patch('commands.system.AppCommands.open_app') as abrir:
+            r = SystemCommands().focus_window('gnome-calculator')
+        abrir.assert_not_called()
+        self.assertFalse(r.ok)
+
     def test_foco_en_aplicacion_de_workspace_especial(self):
         self.estado["clients"].append(
             {
