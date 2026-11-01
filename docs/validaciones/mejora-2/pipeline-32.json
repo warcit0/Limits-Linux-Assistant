@@ -1,0 +1,232 @@
+{
+  "total": 32,
+  "aciertos": 32,
+  "filas": [
+    {
+      "frase": "abre el navegador",
+      "esperado": "open_application",
+      "obtenido": "open_application",
+      "ok": true,
+      "ms": 5
+    },
+    {
+      "frase": "abre discord",
+      "esperado": "open_application",
+      "obtenido": "open_application",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "cierra spotify",
+      "esperado": "close_application",
+      "obtenido": "close_application",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "trae Discord al frente",
+      "esperado": "focus_window",
+      "obtenido": "focus_window",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "muéstrame spotify en pantalla",
+      "esperado": "focus_window",
+      "obtenido": "focus_window",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "pon spotify en pantalla",
+      "esperado": "focus_window",
+      "obtenido": "focus_window",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "sube el volumen al 70",
+      "esperado": "set_volume",
+      "obtenido": "set_volume",
+      "ok": true,
+      "ms": 4304
+    },
+    {
+      "frase": "baja el volumen 10",
+      "esperado": "set_volume",
+      "obtenido": "set_volume",
+      "ok": true,
+      "ms": 2803
+    },
+    {
+      "frase": "busca gatos en google",
+      "esperado": "web_search",
+      "obtenido": "web_search",
+      "ok": true,
+      "ms": 1159
+    },
+    {
+      "frase": "busca el archivo config.py",
+      "esperado": "search_file",
+      "obtenido": "search_file",
+      "ok": true,
+      "ms": 2124
+    },
+    {
+      "frase": "busca config.py en Proyectos/Limits",
+      "esperado": "search_file",
+      "obtenido": "search_file",
+      "ok": true,
+      "ms": 2896
+    },
+    {
+      "frase": "busca main.py en Proyectos/Limits y ábrelo",
+      "esperado": "search_and_open",
+      "obtenido": "search_and_open",
+      "ok": true,
+      "ms": 2976
+    },
+    {
+      "frase": "muéstrame informe.pdf en el explorador",
+      "esperado": "reveal_file",
+      "obtenido": "reveal_file",
+      "ok": true,
+      "ms": 7674
+    },
+    {
+      "frase": "muéstramelo",
+      "esperado": "reveal_last",
+      "obtenido": "reveal_last",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "ábrelo",
+      "esperado": "open_last",
+      "obtenido": "open_last",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "abre el segundo",
+      "esperado": "open_last",
+      "obtenido": "open_last",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "abre el archivo ~/Proyectos/Limits/README.md",
+      "esperado": "open_file",
+      "obtenido": "open_file",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "copia ~/a.txt a ~/Desktop/a.txt",
+      "esperado": "copy_file",
+      "obtenido": "copy_file",
+      "ok": true,
+      "ms": 2937
+    },
+    {
+      "frase": "mueve ~/Downloads/foto.png al escritorio",
+      "esperado": "move_file",
+      "obtenido": "move_file",
+      "ok": true,
+      "ms": 3017
+    },
+    {
+      "frase": "renombra notas.txt a bitacora.txt",
+      "esperado": "rename_file",
+      "obtenido": "rename_file",
+      "ok": true,
+      "ms": 3173
+    },
+    {
+      "frase": "lista la carpeta Descargas",
+      "esperado": "list_directory",
+      "obtenido": "list_directory",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "busca el PDF de impuestos en Descargas y cópialo al escritorio",
+      "esperado": "desktop_task",
+      "obtenido": "desktop_task",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "abre el proyecto Limits en code",
+      "esperado": "open_project",
+      "obtenido": "open_project",
+      "ok": true,
+      "ms": 2169
+    },
+    {
+      "frase": "apaga el sistema",
+      "esperado": "shutdown",
+      "obtenido": "shutdown",
+      "ok": true,
+      "ms": 1841
+    },
+    {
+      "frase": "sí, hazlo",
+      "esperado": "confirm",
+      "obtenido": "confirm",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "no, cancélalo",
+      "esperado": "cancel",
+      "obtenido": "cancel",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "qué canción suena",
+      "esperado": "get_current_song",
+      "obtenido": "get_current_song",
+      "ok": true,
+      "ms": 1753
+    },
+    {
+      "frase": "¿cuánta RAM estoy usando?",
+      "esperado": "get_system_info",
+      "obtenido": "get_system_info",
+      "ok": true,
+      "ms": 2140
+    },
+    {
+      "frase": "pon a Michael Jackson en Spotify",
+      "esperado": "spotify_play",
+      "obtenido": "spotify_play",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "pausa la música",
+      "esperado": "media_control",
+      "obtenido": "media_control",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "reanuda la reproducción de spotify",
+      "esperado": "media_control",
+      "obtenido": "media_control",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "frase": "siguiente canción",
+      "esperado": "media_control",
+      "obtenido": "media_control",
+      "ok": true,
+      "ms": 0
+    }
+  ],
+  "efectos_reales": false,
+  "modo": "objetivos"
+}

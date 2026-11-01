@@ -85,6 +85,23 @@ class TestDesktopAgent(unittest.TestCase):
         out = self.agent.run("no hagas nada")
         self.assertEqual(out, "Nada que hacer.")
 
+    def test_no_abre_archivos_en_una_tarea_de_copia(self):
+        self.plan_queue = [{"tool": "search_and_open", "args": {"name": "foto.png"}}]
+        with mock.patch.dict(self.agent._tools, {"search_and_open": mock.Mock()}) as tools:
+            self.assertIn("No abriré", self.agent.run("busca foto.png y cópialo"))
+            tools["search_and_open"].assert_not_called()
+
+    def test_cancelacion_durante_plan_no_ejecuta_herramientas(self):
+        import threading
+        evento = threading.Event()
+        def cancelar(_):
+            evento.set()
+            return {"tool": "copy_file", "args": {"source": "a", "destination": "b"}}
+        self.agent._plan = cancelar
+        with mock.patch.dict(self.agent._tools, {"copy_file": mock.Mock()}) as tools:
+            self.assertEqual(self.agent.run("copia", cancel_event=evento), "Tarea cancelada.")
+            tools["copy_file"].assert_not_called()
+
     def test_search_and_open_loop(self):
         self.plan_queue = [
             {"tool": "search_and_open",

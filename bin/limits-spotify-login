@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+limits_root="$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)"
+exec "$limits_root/limits-env/bin/python" "$limits_root/scripts/spotify_login.py"

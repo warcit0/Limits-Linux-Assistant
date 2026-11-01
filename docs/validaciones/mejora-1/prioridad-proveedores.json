@@ -1,0 +1,27 @@
+[
+  {
+    "rol": "desarrollo",
+    "orden": [
+      "opencode/deepseek-v4.1-flash-free",
+      "deepseek-ai/deepseek-v4.1-flash"
+    ],
+    "ok": false,
+    "error": "Ningún proveedor de este rol pudo completar este paso; la tarea conserva su estado.",
+    "modelo_final": null,
+    "segundos": 21.53
+  },
+  {
+    "rol": "analisis",
+    "orden": [
+      "opencode/big-pickle",
+      "nvidia/nemotron-3.5-bolt-e4b"
+    ],
+    "decision": {
+      "tipo": "respuesta",
+      "texto": "60"
+    },
+    "ok": true,
+    "modelo_final": "nvidia/nemotron-3.5-bolt-e4b",
+    "segundos": 2.11
+  }
+]

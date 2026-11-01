@@ -28,17 +28,17 @@ def _terminate(proc: subprocess.Popen | None) -> None:
     if proc is None:
         return
     try:
-        if proc.stdin is not None and not proc.stdin.closed:
-            try:
-                proc.stdin.close()
-            except Exception:
-                pass
         try:
             proc.send_signal(signal.SIGCONT)
         except Exception:
             pass
         proc.terminate()
         proc.wait(timeout=0.5)
+        if proc.stdin is not None and not proc.stdin.closed:
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
     except Exception:
         try:
             proc.send_signal(signal.SIGCONT)
@@ -69,6 +69,9 @@ def _unregister(proc) -> None:
 
 def pause_all() -> None:
     """Silencia el TTS al instante (SIGSTOP) sin perder la posición."""
+    from modules.presence import obtener
+    if obtener():
+        obtener().pausar(True)
     with _ACTIVE_LOCK:
         for proc in list(_ACTIVE_PROCS):
             try:
@@ -79,6 +82,9 @@ def pause_all() -> None:
 
 
 def resume_all() -> None:
+    from modules.presence import obtener
+    if obtener():
+        obtener().pausar(False)
     with _ACTIVE_LOCK:
         for proc in list(_ACTIVE_PROCS):
             try:
@@ -179,39 +185,17 @@ class TTSEngine:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
-            aplay_proc = subprocess.Popen(
-                aplay_cmd,
-                stdin=piper_proc.stdout,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
             _register(piper_proc)
-            _register(aplay_proc)
-
             try:
                 piper_proc.stdin.write(text.encode("utf-8"))
                 piper_proc.stdin.close()
-            except BrokenPipeError:
-                pass  # aplay murió antes de leer todo; se limpia abajo
-
-            try:
-                interrupted = wait_with_stop(aplay_proc, stop_event)
-
-                if interrupted:
-                    _terminate(piper_proc)
-                    console.print("[yellow]⏹ TTS interrumpido.[/yellow]")
-                    return "interrupted"
-
-                # Reap del proceso piper para evitar zombies
-                try:
-                    piper_proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    piper_proc.kill()
-                    piper_proc.wait()
-                return "ok"
+                from modules.audio_meter import reproducir_pcm
+                return reproducir_pcm(piper_proc, stop_event, getattr(self, "on_audio_start", None))
             finally:
-                _unregister(aplay_proc)
+                if piper_proc.poll() is None:
+                    _terminate(piper_proc)
                 _unregister(piper_proc)
+                piper_proc.stdout.close()
 
         except FileNotFoundError:
             console.print("[yellow]piper no encontrado, usando espeak-ng...[/yellow]")
@@ -222,6 +206,26 @@ class TTSEngine:
 
     def _speak_espeak(self, text: str, stop_event=None) -> str:
         """Fallback con espeak-ng (baja calidad pero siempre disponible)."""
+        from modules.presence import obtener
+        if obtener() is not None:
+            import shutil
+            if shutil.which("ffmpeg"):
+                import tempfile
+                from modules.audio_meter import reproducir_archivo
+                with tempfile.NamedTemporaryFile(suffix=".wav", prefix="limits-voz-") as archivo:
+                    proceso = subprocess.Popen(["espeak-ng", "--stdout", "-v", "es", "-s", "150", text],
+                                               stdout=archivo, stderr=subprocess.DEVNULL)
+                    _register(proceso)
+                    try:
+                        if wait_with_stop(proceso, stop_event, timeout=30):
+                            return "interrupted"
+                        if proceso.returncode != 0:
+                            return "error"
+                        return reproducir_archivo(archivo.name, stop_event, on_audio_start=getattr(self, "on_audio_start", None))
+                    finally:
+                        if proceso.poll() is None:
+                            _terminate(proceso)
+                        _unregister(proceso)
         try:
             proc = subprocess.Popen(
                 ["espeak-ng", "-v", "es", "-s", "150", text],

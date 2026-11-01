@@ -21,7 +21,7 @@ def _plain(text: str) -> str:
 
 # Frases que NO son del lane de música aunque contengan «música»/«spotify».
 _EXCLUDE = re.compile(
-    r"\b(en pantalla|al frente|volumen|brillo|cancion actual|que cancion|"
+    r"\b(en (?:(?:mi|la) )?pantalla|al frente|volumen|brillo|cancion actual|que cancion|"
     r"letra|tele|tv|chromecast)\b"
 )
 
@@ -30,7 +30,7 @@ _CONTROL = (
     (re.compile(r"^(pausa|pausar|pausala|pon pausa)(\s+(la\s+)?"
                 r"(musica|cancion|spotify))?$"), "pause"),
     (re.compile(r"^(reanuda|reanudar|continua|continua la|sigue|dale)"
-                r"(\s+(la\s+)?(musica|cancion|spotify))?$"), "play"),
+                r"(\s+(la\s+)?(musica|cancion|spotify|reproduccion(?: de spotify)?))?$"), "play"),
     (re.compile(r"^(siguiente|next|otra)(\s+(cancion|tema))?$"), "next"),
     (re.compile(r"^(anterior|previous|previa)(\s+(cancion|tema))?$"), "previous"),
     (re.compile(r"^(para|deten|detiene|stop)(\s+(la\s+)?"
@@ -76,12 +76,21 @@ def match_media_route(text: str) -> dict | None:
     if not plain or " y " in plain or _EXCLUDE.search(plain):
         return None
 
+    # Contenido genérico + reproductor identifica una reanudación, no una búsqueda.
+    generica = re.fullmatch(r"(?:reproduce|reproducir|reanuda|continua) (?:la )?(?:musica|reproduccion)"
+                           r"(?: (?:de|en|del) (?:el )?(spotify|vlc|mpv|firefox))?", plain)
+    if generica:
+        params = {"action":"play", "verify":True}
+        if generica[1]:
+            params['player'] = generica[1]
+        return {"intent":"media_control", "action":"media_control", "params":params, "response":"", "confidence":1.0}
+
     for pattern, action in _CONTROL:
         if pattern.search(plain):
             return {
                 "intent": "media_control",
                 "action": "media_control",
-                "params": {"action": action},
+                "params": {"action": action, "verify": True},
                 # Nunca vacío: `media_control` devuelve None y el executor
                 # necesita texto o responde «no te he entendido».
                 "response": _CONTROL_SAYS[action],
@@ -105,5 +114,8 @@ def match_media_route(text: str) -> dict | None:
 
     query = _ARTICLE.sub("", query).strip()
     if not query:
+        return None
+    if _plain(query) in {"spotify","musica","cancion","reproduccion","otra cosa","algo"}:
+        # Falta contenido concreto: el agente decide entre activar, reanudar o aclarar.
         return None
     return _play(query, platform)

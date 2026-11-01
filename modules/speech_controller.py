@@ -36,13 +36,13 @@ def _plain(text: str) -> str:
 def looks_like_echo(heard: str, spoken: str, threshold: float = 0.75) -> bool:
     """True si lo oído está compuesto casi solo por palabras del TTS.
 
-    Exige ≥2 palabras: un «para» suelto del usuario no puede confundirse con
+    Exige ≥3 palabras: un «para» o «la segunda» no pueden confundirse con
     eco, y una frase de ≥3 palabras del propio TTS sí se detecta.
     """
     heard_words = set(re.findall(r"\w+", _plain(heard)))
-    if len(heard_words) < 2:
+    if len(heard_words) < 3:
         return False
-    spoken_words = set(re.findall(r"\w+", _plain(spoken)))
+    spoken_words = set(re.findall(r"\w+", _plain(spoken() if callable(spoken) else spoken)))
     if not heard_words:
         return True
     return len(heard_words & spoken_words) / len(heard_words) >= threshold
@@ -88,16 +88,27 @@ class SpeechController:
         self._stop_event = threading.Event()
         self.pending_text = ""
         self.last_result = "ok"
+        self._espera_fin = None
+        self._espera_hilo = None
 
     # ── API ─────────────────────────────────────────────────────────────────
-    def speak(self, text: str, source: str = "system") -> str:
+    def speak(self, text: str, source: str = "system", cancel_event=None) -> str:
         """Habla y escucha a la vez. Devuelve "ok" o "interrupted"."""
+        if cancel_event is not None and cancel_event.is_set():
+            return "interrupted"
         self.pending_text = ""
         self._stop_event.clear()
+        propio = self._stop_event
+
+        class ParadaCompartida:
+            def is_set(self):
+                return propio.is_set() or (cancel_event is not None and cancel_event.is_set())
+
+        parada = ParadaCompartida()
 
         if not self.enabled:
             self.last_result = self.voice.speak(
-                text, source, stop_event=self._stop_event) or "ok"
+                text, source, stop_event=parada) or "ok"
             return self.last_result
 
         box: dict = {}
@@ -106,7 +117,7 @@ class SpeechController:
         def _tts():
             try:
                 box["r"] = self.voice.speak(text, source,
-                                            stop_event=self._stop_event)
+                                            stop_event=parada)
             except Exception:
                 if debug:
                     import traceback
@@ -144,6 +155,46 @@ class SpeechController:
     def stop(self) -> None:
         """Corta el TTS en curso (p. ej. mensaje `stop` del móvil)."""
         self._stop_event.set()
+
+    def iniciar_espera(self, cancelar) -> None:
+        """Escucha interrupciones mientras el coordinador consulta modelos."""
+        if not self.enabled:
+            return
+        self.finalizar_espera()
+        fin = threading.Event()
+        self._espera_fin = fin
+        self.pending_text = ""
+
+        class TrabajoVigente:
+            def is_alive(self):
+                return not fin.is_set()
+
+        def escuchar():
+            try:
+                texto = self._listen(TrabajoVigente(), "")
+                if texto.strip():
+                    if classify_interruption(texto, "", self.keywords,
+                                             self.echo_threshold) == "command":
+                        self.pending_text = texto
+                    cancelar()
+            except Exception:
+                # Si el dispositivo falla, el turno conserva la cancelación móvil.
+                import logging
+                logging.getLogger("limits.voz").debug("No se pudo escuchar durante la consulta", exc_info=True)
+
+        self._espera_hilo = threading.Thread(target=escuchar, daemon=True)
+        self._espera_hilo.start()
+
+    def finalizar_espera(self) -> None:
+        """Libera el micrófono antes del TTS y de su propio barge-in."""
+        if self._espera_fin is not None:
+            self._espera_fin.set()
+        if self._espera_hilo is not None:
+            self._espera_hilo.join(timeout=15)
+            if self._espera_hilo.is_alive():
+                raise RuntimeError("El micrófono sigue ocupado por la escucha de la tarea.")
+        self._espera_fin = None
+        self._espera_hilo = None
 
     # ── Audio ───────────────────────────────────────────────────────────────
     def _listen(self, tts_thread: threading.Thread, spoken: str) -> str:

@@ -4,9 +4,87 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Versionado semántico simplificado; mientras dure el estado prealpha pueden haber
 cambios rompientes en cualquier release.
 
-## [Unreleased] — 2026-10-29
+## [Unreleased]
+
+- Catálogo instalado y asociación XDG para abrir apps; sugerencias aproximadas sin
+  ejecución implícita, protección de cobertura de órdenes/proyectos y control MPRIS
+  con disponibilidad, cancelación, envío único y verificación posterior.
+
+
+- Recorrido local unificado: rutas rápidas y Qwen compilan operaciones al mismo
+  ejecutor; lotes independientes, contratos de parámetros reales, contexto por turno
+  y cierre por recibos. Retirados segmentación y filtros/cierres por frases del ciclo
+  local. Revisión estática únicamente, sin aceptación funcional.
+
+
+- Recibos de memoria confirmados tras commit/borrado; referencias de archivos rápidos
+  se convierten a destinos observados y pasan por el mismo control de rutas.
+
+### Cambiado — Mejora 6
+- Selector AGENT_MODE=local: Qwen atiende el escritorio cotidiano sin Groq ni jueces por paso; especialistas por capacidad y permisos locales por operación/destino.
+- Contexto acotado sin duplicar contratos, consulta de aplicaciones instaladas y verificación de foco antes de cerrar ventanas.
+- MCP Spotify stdio con OAuth PKCE, preparado y desactivado hasta conectar la cuenta.
+- Aceptación preparada sin ejecutar tests ni consultas de prueba por petición del usuario.
+
+
+### Corregido
+- Ciclo cotidiano único con planes acotados, resultados verificables, recibos ante cancelación y respuestas sin estructuras internas.
+- Resolución observada de ventanas y especiales; resultados vacíos dejan de considerarse solicitudes exitosas.
+- Catálogo por capacidades y cierre directo de planes comprobados, conservando confirmaciones, grounding y sandbox.
+ — 2026-10-31
 
 ### Added
+- Agente general opt-in: interpretación por significado, contratos reales,
+  revisión de autorización/cobertura, recuperación y diálogo separado del objetivo.
+- Bóveda editable en Obsidian conectada a SQLite: recuperación relevante,
+  procedimientos verificados, conflictos, caducidad, sincronización y olvido.
+
+### Fixed
+- Verificación posterior de volumen/brillo, estado musical pausado y espacios
+  especiales; los conflictos de memoria tampoco se presentan como hechos en rutas clásicas.
+- Conversación operativa: planes por pasos para proyectos, foco, YouTube y Spotify;
+  referencias explícitas y resultados comprobados por turno. Se reconocen Code OSS
+  y destinos numéricos vacíos; no se certifican búsquedas ni reproducción sin evidencia.
+- Workspaces: órdenes con «work space», «World space» y prefijos de cortesía se
+  ejecutan y comprueban contra Hyprland. Un efecto anterior no acredita un turno
+  nuevo; las solicitudes sin comprobación se comunican como tales. Se reconoce la
+  ausencia de visión y las aplicaciones se consultan por ventanas reales.
+- Aislamiento por prueba de memoria, tareas y logs; cuarentena respaldada de
+  episodios sintéticos inequívocos y exclusión de respuestas fallidas del contexto.
+- Preparación de scripts: la prueba satisfactoria produce una propuesta concreta sin
+  depender de otra inferencia; cancelaciones del router compatible impiden efectos tardíos.
+- El agente compuesto rechaza aperturas no solicitadas durante una búsqueda y copia.
+- Investigación Gemini: espera completa, URLs visibles y fechas obligatorias; respuestas
+  incompletas no se presentan como verificadas. Integración activada tras aceptación.
+
+### Added
+- **Presencia animada nativa:** núcleo orgánico con membrana, filamentos y partículas
+  mediante shader de Quickshell. Widget arriba/derecha, sin foco, con estado real,
+  energía PCM de Piper/ElevenLabs/espeak, pausa y botón Detener ligado al turno.
+  Socket privado, reconexión, movimiento reducido y servicio independiente opt-in.
+- Voz progresiva de Gemini: eventos del CLI gemdev, navegador persistente,
+  frases provisionales deduplicadas, validación final de fuentes/fechas y cola
+  única de audio con cancelación local/móvil. Telemetría hasta primer PCM.
+- Conversación natural local con preguntas contextuales, continuidad de opciones
+  y ventana configurable para responder sin repetir «Limits».
+- **Respaldos GLM/Groq opcionales:** credenciales separadas; GLM Flash para
+  desarrollo y GPT-OSS 120B de Groq como último respaldo de los especialistas.
+  OpenCode conserva prioridad. Groq usa JSON sin streaming, límite de salida
+  propio y una repetición acotada por `Retry-After` o formato rechazado.
+  La aplicación verificada de scripts se comunica sin otra llamada al modelo.
+- **Nemotron Super y Bolt:** claves independientes y cadena de análisis
+  Big Pickle → Super → Bolt → Groq, conservando prioridad fija por rol.
+- **Asistente por objetivos (experimental, opt-in):** coordinador LangGraph con
+  estado privado por sesión, selección de Qwen/NVIDIA/gemdev, herramientas
+  verificadas y continuidad entre turnos. Scripts probados con bwrap sobre copias
+  y aplicación vinculada al plan aprobado. Cancelación de consultas, procesos y
+  turnos en cola; versión hablada y artefacto completo separados. Activación
+  mediante `AGENT_ENABLED`; documentación en `docs/asistente-por-objetivos.md`.
+  Respaldos independientes: OpenCode DeepSeek → NVIDIA DeepSeek y
+  OpenCode Big Pickle → NVIDIA Nemotron, con prioridad fija, enfriamiento y
+  presupuesto compartido por intento. El lane compuesto conserva OpenCode
+  DeepSeek primero y NVIDIA DeepSeek como respaldo. La autenticación de gemdev y la
+  aceptación externa pendiente se detallan en el informe de validación.
 - **Grounding del router (P1):** `modules/grounding.py` verifica cada intent
   contra el catálogo real (`action_map`), el dominio de la frase y los enums de
   parámetros (con alias: `free_space`→`disk`). Si no puede anclarlo, devuelve

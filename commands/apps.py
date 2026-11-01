@@ -1,7 +1,11 @@
 """Comandos para abrir y cerrar aplicaciones."""
 
 import subprocess
+import shutil
+from functools import lru_cache
+import json
 import psutil
+import time
 from rich.console import Console
 
 console = Console()
@@ -22,6 +26,9 @@ class AppCommands:
         "github":           ["chromium", "--profile-directory=Default", "--app-id=mjoklplbddabcmpepnokjaffbmgbkkgg"],
         "antigravity":      ["code", "/home/warcito/.gemini/antigravity"],
         "thunar":           ["thunar"],
+        "nautilus":         ["nautilus"],
+        "dolphin":          ["dolphin"],
+        "pcmanfm":          ["pcmanfm"],
         "nvim":             ["ghostty", "-e", "nvim"],
         "neovim":           ["ghostty", "-e", "nvim"],
         "lazygit":          ["ghostty", "-e", "lazygit"],
@@ -44,10 +51,34 @@ class AppCommands:
         "neovim":             "nvim",
     }
 
+    @classmethod
+    def disponibles(cls):
+        """Catálogo ejecutable observado en PATH; no implica que la app esté abierta."""
+        return {nombre:cmd for nombre,cmd in cls.APP_MAP.items() if shutil.which(cmd[0])}
+
+    @classmethod
+    @lru_cache(maxsize=8)
+    def predeterminada(cls, tipo, candidatos):
+        """Resuelve un rol contra la asociación XDG y aplicaciones disponibles."""
+        disponibles = cls.disponibles()
+        try:
+            r = subprocess.run(['xdg-mime','query','default',tipo],capture_output=True,text=True,timeout=2)
+            nombre = r.stdout.strip().removesuffix('.desktop').rsplit('.',1)[-1].casefold()
+            if nombre in candidatos and nombre in disponibles:
+                return nombre
+        except (OSError,subprocess.SubprocessError):
+            pass
+        opciones = [n for n in candidatos if n in disponibles]
+        return opciones[0] if len(opciones) == 1 else None
+
     def open_app(self, app: str, args: list = None) -> None:
         """Abre una aplicación. args=None corrige el bug de mutable default."""
         args = args or []
-        cmd = self.APP_MAP.get(app.lower(), [app]) + args
+        from modules.command_result import ResultadoComando
+        comando = self.APP_MAP.get(app.lower())
+        if not comando or not shutil.which(comando[0]):
+            return ResultadoComando(f"No pude abrir {app}: no está disponible en el catálogo instalado.",ok=False)
+        cmd = comando + args
         try:
             subprocess.Popen(
                 cmd,
@@ -56,8 +87,22 @@ class AppCommands:
                 start_new_session=True,
             )
             console.print(f"[green]✓ Abriendo {app}[/green]")
+            from modules.command_result import ResultadoComando
+            from commands.system import SystemCommands
+            limite = time.monotonic()+4
+            while time.monotonic()<limite:
+                try:
+                    r = subprocess.run(["hyprctl", "-j", "clients"],capture_output=True,text=True,timeout=1,check=True)
+                    if any(SystemCommands.coincide_clase(app, c) for c in json.loads(r.stdout)):
+                        return ResultadoComando(f"{app} está abierto; he comprobado su ventana.",ok=True,verificado=True)
+                except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                    break
+                time.sleep(.1)
+            return ResultadoComando(f"He solicitado abrir {app}, pero no he comprobado su ventana.")
         except FileNotFoundError:
             console.print(f"[red]✗ Aplicación '{app}' no encontrada[/red]")
+            from modules.command_result import ResultadoComando
+            return ResultadoComando(f"No pude abrir {app}: no está instalado.",ok=False)
 
     def close_app(self, app: str) -> None:
         """Termina procesos o apaga aplicaciones de forma segura."""
@@ -65,12 +110,13 @@ class AppCommands:
 
         # Cierre seguro para Steam (evita corrupción de archivos)
         if app_lower == "steam":
-            subprocess.run(["steam", "-shutdown"])
-            console.print("[green]✓ Apagando Steam correctamente[/green]")
-            return
+            subprocess.run(["steam", "-shutdown"],timeout=3,check=True)
+            from modules.command_result import ResultadoComando
+            return ResultadoComando("He solicitado cerrar Steam; todavía no he comprobado su salida.",ok=True)
 
         target = self.PROCESS_ALIASES.get(app_lower, app_lower)
         killed = False
+        terminados = []
         for proc in psutil.process_iter(["pid", "name"]):
             try:
                 name = (proc.info["name"] or "").lower()
@@ -83,18 +129,23 @@ class AppCommands:
                 ):
                     proc.terminate()
                     killed = True
+                    terminados.append(proc)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
+        from modules.command_result import ResultadoComando
         if not killed:
-            console.print(f"[yellow]'{app}' no estaba corriendo[/yellow]")
+            return ResultadoComando(f"No encontré {app} en ejecución; no he cerrado ninguna aplicación.",ok=False)
+        _, vivos = psutil.wait_procs(terminados, timeout=2)
+        if vivos:
+            return ResultadoComando(f"He solicitado cerrar {app}; todavía hay procesos activos.",ok=True)
+        return ResultadoComando(f"{app} está cerrado; sus procesos terminaron.",ok=True,verificado=True)
 
     def list_running(self) -> str:
         """Lista las primeras 10 apps corriendo (por nombre de proceso)."""
-        apps = set()
-        for proc in psutil.process_iter(["name"]):
-            try:
-                apps.add(proc.info["name"])
-            except psutil.NoSuchProcess:
-                pass
-        top = sorted(apps)[:10]
-        return ", ".join(top)
+        try:
+            resultado = subprocess.run(["hyprctl", "-j", "clients"], capture_output=True, text=True, timeout=3, check=True)
+            clientes = json.loads(resultado.stdout)
+            nombres = sorted({str(c.get("initialClass") or c.get("class") or "Aplicación") for c in clientes if c.get("mapped", True)})
+            return "Aplicaciones con ventanas: " + ", ".join(nombres) if nombres else "No hay aplicaciones con ventanas visibles."
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return "No pude consultar las ventanas de Hyprland; no puedo confirmar las aplicaciones visibles."

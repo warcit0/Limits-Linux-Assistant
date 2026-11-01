@@ -2,6 +2,8 @@
 
 import json
 import subprocess
+import re
+import time
 import psutil
 from rich.console import Console
 from commands.apps import AppCommands
@@ -16,36 +18,44 @@ class SystemCommands:
     para prevenir inyección de comandos si el LLM genera parámetros maliciosos.
     """
 
-    def set_volume(self, level: int, mode: str = "absolute") -> None:
-        """Establece el volumen del sistema via WirePlumber (wpctl)."""
-        if mode == "relative":
-            # Ajuste relativo: admite negativos (-10 baja 10%)
-            level = int(level)
-            sign = "+" if level >= 0 else ""
-            subprocess.run(
-                ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{sign}{level}%"],
-                check=True,
-            )
-        else:
-            level = max(0, min(100, int(level)))
-            subprocess.run(
-                ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{level}%"],
-                check=True,
-            )
+    def set_volume(self, level: int, mode: str = "absolute") -> str:
+        """Ajusta el volumen y compara el valor real con el solicitado."""
+        from modules.command_result import ResultadoComando
+        level = int(level)
+        actual = self._volumen_real() if mode == "relative" else None
+        if mode == "relative" and actual is None:
+            return ResultadoComando("No pude consultar el volumen inicial; no he enviado el ajuste relativo.", ok=False)
+        esperado = max(0, min(100, actual+level if actual is not None else level))
+        argumento = f"{level:+d}%" if mode == "relative" else f"{esperado}%"
+        subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", argumento],
+                       check=True, capture_output=True, timeout=3)
+        observado = self._volumen_real()
+        if observado is None or abs(observado-esperado)>1:
+            return ResultadoComando("Envié el ajuste de volumen, pero no he comprobado el valor solicitado.", ok=None)
+        return ResultadoComando(f"Volumen al {observado} %; comprobado.", ok=True, verificado=True)
+
+    @staticmethod
+    def _volumen_real():
+        r = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
+                           capture_output=True, text=True, check=True, timeout=3)
+        m = re.search(r"Volume:\s*([0-9.]+)", r.stdout)
+        return round(float(m[1])*100) if m else None
 
     def get_volume(self) -> str:
-        """Obtiene el volumen actual."""
-        result = subprocess.run(
-            ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
-            capture_output=True,
-            text=True,
-        )
-        return result.stdout.strip()
+        """Obtiene el volumen real del sistema."""
+        observado = self._volumen_real()
+        return f"Volumen: {observado} %." if observado is not None else "No pude consultar el volumen."
 
-    def set_brightness(self, level: int) -> None:
-        """Ajusta el brillo de la pantalla via brightnessctl."""
+    def set_brightness(self, level: int) -> str:
+        """Ajusta el brillo y compara el valor real con el solicitado."""
+        from modules.command_result import ResultadoComando
         level = max(0, min(100, int(level)))
-        subprocess.run(["brightnessctl", "set", f"{level}%"], check=True)
+        subprocess.run(["brightnessctl", "set", f"{level}%"], check=True, capture_output=True, timeout=3)
+        r = subprocess.run(["brightnessctl", "-m"], check=True, capture_output=True, text=True, timeout=3)
+        campos = r.stdout.strip().split(',')
+        if len(campos)>3 and campos[3].strip('%').isdigit() and abs(int(campos[3].strip('%'))-level)<=1:
+            return ResultadoComando(f"Brillo al {level} %; comprobado.", ok=True, verificado=True)
+        return ResultadoComando("Envié el ajuste de brillo, pero no he comprobado el valor solicitado.", ok=None)
 
     def lock_screen(self) -> None:
         """Bloquea la pantalla con hyprlock."""
@@ -60,40 +70,84 @@ class SystemCommands:
         )
 
     def media_control(self, action: str = "play-pause",
-                      player: str | None = None) -> str:
+                      player: str | None = None, verify: bool = False) -> str:
         """Controla la reproducción multimedia vía playerctl.
 
         `player` fija el reproductor ("spotify", "firefox"…). Sin él se elige
         el que esté sonando y, si ninguno, Spotify: nunca "el primero", que
         puede ser una pestaña del navegador.
 
-        Devuelve "" si todo fue bien (se usa el response del LLM) o el motivo
-        del fallo, para no decir "reanudando" cuando no se hizo nada.
+        Devuelve un recibo del envío y su observación; nunca repite un efecto incierto.
         """
-        valid = {"play", "pause", "play-pause", "next", "previous", "stop"}
-        cmd = action if action in valid else "play-pause"
+        return self._control_multimedia(action,player,verify)
 
-        target = pick_player(player)
-        if target is None:
-            if player:
-                return f"No encuentro {player} abierto."
-            return "No hay ningún reproductor de música abierto."
-
+    def _control_multimedia(self, action, player=None, verify=False, *, cancelar=None):
+        """Espera capacidades, envía UN efecto y observa su resultado, sin reintentos."""
+        from modules.command_result import ResultadoComando
+        valido = {'play','pause','play-pause','next','previous','stop'}
+        if action not in valido:
+            return ResultadoComando('La operación multimedia no es válida; no envié ninguna orden.',ok=False)
+        def detenido():
+            return cancelar is not None and cancelar.is_set()
+        def esperar():
+            cancelar.wait(.15) if cancelar is not None else time.sleep(.15)
+        def leer(target, comando):
+            try:
+                r = subprocess.run(['playerctl','--player',target,*comando],capture_output=True,text=True,timeout=1)
+                return r.stdout.strip() if r.returncode == 0 else ''
+            except (OSError,subprocess.SubprocessError):
+                return ''
+        def observar(target):
+            return {'estado':leer(target,['status']),
+                    'pista':leer(target,['metadata','--format','{{mpris:trackid}}|{{xesam:url}}|{{title}}']).strip('| ')}
+        def capacidad(target):
+            propiedad = {'play':'CanPlay','pause':'CanPause','next':'CanGoNext','previous':'CanGoPrevious'}.get(action,'CanControl')
+            try:
+                r = subprocess.run(['gdbus','call','--session','--dest','org.mpris.MediaPlayer2.'+target,
+                    '--object-path','/org/mpris/MediaPlayer2','--method','org.freedesktop.DBus.Properties.Get',
+                    'org.mpris.MediaPlayer2.Player',propiedad],capture_output=True,text=True,timeout=1)
+                if r.returncode == 0:
+                    return 'true' in r.stdout.lower()
+            except (OSError,subprocess.SubprocessError):
+                pass
+            return None  # No se cambia de transporte ni de reproductor por falta de observación.
+        fin = time.monotonic()+4
+        target, antes = None, {}
+        while not detenido():
+            target = pick_player(player)
+            if target:
+                antes = observar(target)
+                if antes['estado'] and capacidad(target) is not False:
+                    break
+            if time.monotonic() >= fin:
+                texto = 'El reproductor no tiene disponible esa operación o aún está cargando. No envié la orden.' if target else 'No encuentro el reproductor solicitado disponible. No envié la orden.'
+                return ResultadoComando(texto,ok=False)
+            esperar()
+        if detenido():
+            return ResultadoComando('Operación cancelada antes de enviar la orden multimedia.',ok=False)
         try:
-            res = subprocess.run(
-                ["playerctl", "--player", target, cmd],
-                capture_output=True, text=True, timeout=5, check=False,
-            )
-        except (OSError, subprocess.SubprocessError) as e:
-            return f"No pude controlar {target}: {e}"
-
-        if res.returncode != 0:
-            detail = [line for line in (res.stderr or "").splitlines() if line.strip()]
-            suffix = f": {detail[-1][:80]}" if detail else "."
-            return f"No pude {cmd} en {target}{suffix}"
-
-        console.print(f"[green]✓ {cmd} → {target}[/green]")
-        return ""
+            # Único envío: una respuesta incierta nunca repite next/play por otro transporte.
+            r = subprocess.run(['playerctl','--player',target,action],capture_output=True,text=True,timeout=5)
+        except (OSError,subprocess.SubprocessError):
+            return ResultadoComando('No pude confirmar la entrega de la orden multimedia; no la repetiré automáticamente.',ok=True)
+        if r.returncode != 0:
+            return ResultadoComando('El reproductor no pudo aceptar la orden multimedia; no he confirmado su efecto.',ok=False)
+        if not verify:
+            return ResultadoComando('Solicitud multimedia enviada a '+target+'.',ok=True)
+        esperado = {'play':'Playing','pause':'Paused','stop':'Stopped'}.get(action)
+        if action == 'play-pause':
+            esperado = 'Paused' if antes.get('estado') == 'Playing' else 'Playing'
+        fin = time.monotonic()+2
+        while not detenido():
+            despues = observar(target)
+            comprobado = despues['estado'] == esperado if esperado else bool(antes.get('pista') and despues['pista'] and despues['pista'] != antes['pista'])
+            if comprobado:
+                texto = 'La canción cambió; he comprobado el nuevo contenido.' if action in {'next','previous'} else 'Estado de reproducción comprobado: '+{'Playing':'reproduciendo','Paused':'en pausa','Stopped':'detenido'}[esperado]+'.'
+                return ResultadoComando(texto,ok=True,verificado=True)
+            if time.monotonic() >= fin:
+                break
+            esperar()
+        return ResultadoComando('Solicitud multimedia enviada a '+target+'; todavía no he comprobado su efecto.',ok=True)
 
     def hyprland_control(self, action: str) -> None:
         """Controles directos del gestor de ventanas Hyprland."""
@@ -120,23 +174,43 @@ class SystemCommands:
         "thunar":       "thunar",
     }
 
+    @classmethod
+    def coincide_clase(cls, app, cliente):
+        """Reconoce clases exactas de las variantes conocidas de una aplicación."""
+        clase = cls.WINDOW_CLASS_MAP.get(app.lower(), app).casefold()
+        clases = {clase}
+        if clase == "code":
+            clases.update({"code-oss", "vscodium"})
+        observadas = {str(cliente.get(k, "")).casefold() for k in ("class", "initialClass")}
+        observadas |= {c.rsplit('.',1)[-1] for c in observadas}
+        return bool(clases & observadas)
+
     def focus_window(self, app: str) -> str:
-        """Trae al frente una ventana específica por nombre de app usando hyprctl.
-        Si la ventana no existe, abre la aplicación."""
-        window_class = self.WINDOW_CLASS_MAP.get(app.lower(), app)
-
-        if self._window_exists(window_class):
-            subprocess.run(
-                ["hyprctl", "dispatch", "focuswindow", f"class:{window_class}"],
-                capture_output=True, text=True, check=False
-            )
-            console.print(f"[green]✓ Foco en ventana: {window_class}[/green]")
-            return ""
-
-        # Si no está abierta, abrirla (el response default "Aquí tienes X" sigue siendo válido)
-        console.print(f"[yellow]Ventana no encontrada, abriendo {app}...[/yellow]")
-        AppCommands().open_app(app)
-        return ""
+        """Enfoca una ventana observada y comprueba su dirección activa."""
+        from modules.command_result import ResultadoComando
+        try:
+            r = subprocess.run(["hyprctl", "-j", "clients"], capture_output=True,
+                               text=True, timeout=3, check=True)
+            cliente = next((c for c in json.loads(r.stdout)
+                            if self.coincide_clase(app, c) and c.get("mapped", True)), None)
+            if cliente is None:
+                return AppCommands().open_app(app)
+            direccion = cliente.get("address", "")
+            if not re.fullmatch(r"0x[0-9a-fA-F]+", direccion):
+                raise ValueError("La ventana no tiene una dirección válida.")
+            r = subprocess.run(["hyprctl", "dispatch", "focuswindow", "address:"+direccion],
+                               capture_output=True, text=True, timeout=3, check=True)
+            if r.stdout.strip() != "ok":
+                raise ValueError("Hyprland rechazó el foco.")
+            for _ in range(10):
+                r = subprocess.run(["hyprctl", "-j", "activewindow"], capture_output=True,
+                                   text=True, timeout=1, check=True)
+                if json.loads(r.stdout).get("address") == direccion:
+                    return ResultadoComando(f"{app} está al frente; foco comprobado.", ok=True, verificado=True)
+                time.sleep(.05)
+            raise ValueError("No pude comprobar el foco de la ventana.")
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError) as e:
+            return ResultadoComando(f"No pude enfocar {app}: {e}", ok=False)
 
     @staticmethod
     def _window_exists(window_class: str) -> bool:

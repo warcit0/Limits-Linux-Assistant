@@ -57,7 +57,8 @@ def pick_player(prefer: str | None = None) -> str | None:
         return None
     if prefer:
         want = prefer.strip().lower()
-        return next((p for p in players if want in p.lower()), None)
+        coincidencias = [p for p in players if p.lower() == want or p.lower().startswith(want+'.')]
+        return coincidencias[0] if len(coincidencias) == 1 else None
     for p in players:
         if _player_status(p) == "Playing":
             return p
@@ -80,6 +81,9 @@ class MediaCommands:
             song = result.stdout.strip()
             if not song or song == " - ":
                 return "No hay ninguna canción reproduciéndose ahora mismo."
+            estado = _player_status(target)
+            if estado != "Playing":
+                return f"La reproducción está {estado or 'sin confirmar'}. Está cargada {song}, pero no he comprobado que suene."
             return f"Ahora está sonando {song}."
         except Exception:
             return "No pude obtener la canción actual."
@@ -117,11 +121,13 @@ class MediaCommands:
 
         # Play sobre el primer resultado de la búsqueda
         time.sleep(2 if opened else 0)
-        subprocess.run(
+        reproduccion = subprocess.run(
             ["playerctl", "--player", "spotify", "play"],
             capture_output=True, timeout=5, check=False,
         )
-        return f"Reproduciendo {query} en Spotify."
+        if reproduccion.returncode != 0:
+            return "No pude iniciar la reproducción de Spotify."
+        return f"He enviado la búsqueda de {query} a Spotify y solicitado reproducirla."
 
     @staticmethod
     def _ensure_spotify_running(timeout_s: float = 10.0) -> bool:

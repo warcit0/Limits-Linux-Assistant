@@ -1,0 +1,16 @@
+{
+  "audio": {
+    "ok": true,
+    "segundos": 7.653,
+    "muestras": 111,
+    "niveles_distintos": 53,
+    "investigacion_durante_voz": true,
+    "foco_intacto": true
+  },
+  "decodificacion_pcm": true,
+  "cancelacion": {
+    "ok": true,
+    "segundos": 0.111
+  },
+  "ok": true
+}

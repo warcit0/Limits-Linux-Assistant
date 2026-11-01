@@ -1,0 +1,40 @@
+✓ Ollama listo con qwen2.5:1.5b-instruct
+modelo: qwen2.5:1.5b-instruct | 8 frases
+------------------------------------------------------------------------------
+Procesando: '¿a qué hora abre el banco?'
+grounding: 'get_time' rechazada (fuera_de_dominio); no se ejecutará.
+Intent: system_info | Confidence: 0.98 | grounding: fuera_de_dominio
+BLOQUEADA (fuera_de_dominio)       | responde: 'Abre a las 9:00 AM.'
+                                   | ¿a qué hora abre el banco?
+ejecutaría spotify_play            | responde: 'Buscando música relajante.'
+                                   | ponme música relajante
+Procesando: '¿cuánto espacio libre me queda?'
+Intent: system_info | Confidence: 0.98 | grounding: ok
+ejecutaría get_system_info         | responde: 'Revisando disco.'
+                                   | ¿cuánto espacio libre me queda?
+Procesando: 'estoy cansado'
+grounding: 'shutdown' rechazada (sin_evidencia); no se ejecutará.
+Intent: system_power | Confidence: 0.95 | grounding: sin_evidencia
+BLOQUEADA (sin_evidencia)          | responde: '¿Confirmas el apagado?'
+                                   | estoy cansado
+Procesando: '¿qué canción suena?'
+Intent: media_current | Confidence: 0.96 | grounding: ok
+ejecutaría get_current_song        | responde: 'Mirando.'
+                                   | ¿qué canción suena?
+Procesando: 'busca las llaves'
+grounding: 'search_file' rechazada (sin_evidencia); no se ejecutará.
+Intent: file_search | Confidence: 0.97 | grounding: sin_evidencia
+BLOQUEADA (sin_evidencia)          | responde: 'Buscando.'
+                                   | busca las llaves
+Procesando: 'tradúceme buenos días al inglés'
+grounding: 'translate' rechazada (accion_desconocida); no se ejecutará.
+Intent: translate | Confidence: 0.95 | grounding: accion_desconocida
+BLOQUEADA (accion_desconocida)     | responde: 'Good morning.'
+                                   | tradúceme buenos días al inglés
+Procesando: 'hazme un resumen de la II Guerra Mundial'
+grounding: 'get_system_info' rechazada (sin_evidencia); no se ejecutará.
+Intent: system_info | Confidence: 0.99 | grounding: sin_evidencia
+BLOQUEADA (sin_evidencia)          | responde: 'Revisando memoria.'
+                                   | hazme un resumen de la II Guerra Mundial
+------------------------------------------------------------------------------
+silencios: 0

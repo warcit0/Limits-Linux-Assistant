@@ -1,0 +1,5 @@
+{
+  "ok": true,
+  "objetivos_activos": true,
+  "respuesta": "Un archivo CSV es un tipo de archivo que se utiliza para almacenar datos en formato tabular. Los archivos CSV son conocidos por su simple estructura y facilidad para ser leídos y escritos, lo que los hace muy útiles para la gestión de información básica o para compartir datos entre diferentes sistemas. Cada fila representa una entrada y cada columna contiene un dato específico. Los datos se separan en líneas con comas (,) como delimitador, lo que facilita su lectura y análisis. Además, el formato CSV es compatible con muchos programas y sistemas de gestión de información, lo que hace que sea fácil compartir los datos entre diferentes entornos."
+}

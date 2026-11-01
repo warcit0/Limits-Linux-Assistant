@@ -225,12 +225,13 @@ class GatewayServer:
         """
         Args:
             pipeline: callable(text: str, wait_timeout: float | None,
-                               speak: bool = True) -> str.
+                               speak: bool = True, on_response=None) -> str.
                       Eleva RemoteBusy si no consigue turno a tiempo.
+                      Invoca on_response(texto) antes de liberar el turno.
             speak_remote: si False, los turnos remotos NO hablan por los
                           altavoces del PC (modo silencioso en local).
             speak_fn: callable(text) que reproduce la voz (tts.speak). Si se
-                      pasa, el gateway habla él mismo DESPUÉS de enviar el
+                      pasa, se invoca dentro del turno DESPUÉS de enviar el
                       texto: la app recibe la respuesta al instante y el orbe
                       anima `speaking_started/finished` mientras suena.
             stop_fn: callable() que corta el TTS en curso (barge-in desde el
@@ -424,10 +425,16 @@ class GatewayServer:
         finally:
             for task in list(pending):
                 task.cancel()
+            cancelar = getattr(self.pipeline, "cancel", None)
+            if callable(cancelar):
+                await asyncio.to_thread(cancelar, self._session_id(ws))
             log.info("cliente desconectado")
 
     async def _handle_stop(self, ws) -> None:
         """Corta el TTS en curso sin tocar el turno (ni el lock) en marcha."""
+        cancelar = getattr(self.pipeline, "cancel", None)
+        if callable(cancelar):
+            await asyncio.to_thread(cancelar, self._session_id(ws))
         if self.stop_fn is not None:
             try:
                 await asyncio.to_thread(self.stop_fn)
@@ -473,25 +480,58 @@ class GatewayServer:
                                     err="EMPTY_TEXT", msg="comando vacío"))
             return
 
+        opciones = {}
+        if getattr(self.pipeline, "session_aware", False) is True:
+            opciones["session_id"] = self._session_id(ws)
+            opciones["turn_generation"] = self.pipeline.generation(opciones["session_id"])
         await ws.send_json(_msg(type="event", kind="processing"))
         try:
-            # Si el gateway tiene speak_fn, el pipeline NO habla: se responde
-            # primero (texto instantáneo en la app) y se reproduce después,
-            # emitiendo speaking_started/finished para animar el orbe.
-            inline_speak = self.speak_remote and self.speak_fn is None
-            spoken = await asyncio.to_thread(
-                self.pipeline, text, TURN_WAIT_TIMEOUT, inline_speak)
-            await ws.send_json(_msg(type="response", ok=True, text=spoken))
+            bucle = asyncio.get_running_loop()
 
-            if self.speak_remote and self.speak_fn is not None:
-                await ws.send_json(_msg(type="event", kind="speaking_started"))
+            def enviar(mensaje):
+                # El callback corre en el trabajador del pipeline. El WS
+                # permanece en su bucle; stop sigue atendiendo mensajes.
+                envio = asyncio.run_coroutine_threadsafe(
+                    ws.send_json(mensaje), bucle)
                 try:
-                    await asyncio.to_thread(self.speak_fn, spoken)
-                except Exception:
-                    log.warning("TTS remoto falló; la respuesta ya se envió",
-                                exc_info=True)
-                finally:
-                    await ws.send_json(_msg(type="event", kind="speaking_finished"))
+                    envio.result(timeout=5)
+                except BaseException:
+                    envio.cancel()
+                    raise
+
+            if getattr(self.pipeline, "progress_aware", False):
+                opciones["on_progress"] = lambda evento: enviar(_msg(type="event", kind="progress", progress=evento))
+            if self.speak_remote and self.speak_fn is not None:
+                def entregar_y_hablar(respuesta):
+                    enviar(self._response(respuesta))
+                    if getattr(respuesta, "cancelada", False) or getattr(respuesta, "audio_entregado", False):
+                        return
+                    enviar(_msg(type="event", kind="speaking_started"))
+                    try:
+                        if hasattr(respuesta, "source"):
+                            resultado_voz = self.speak_fn(respuesta, source=respuesta.source,
+                                                          cancel_event=getattr(respuesta, "cancel_event", None))
+                        else:
+                            resultado_voz = self.speak_fn(respuesta)
+                        cancelar = getattr(self.pipeline, "cancel", None)
+                        if resultado_voz == "interrupted" and callable(cancelar):
+                            cancelar(self._session_id(ws))
+                    except Exception:
+                        log.warning("TTS remoto falló; la respuesta ya se envió",
+                                    exc_info=True)
+                    finally:
+                        enviar(_msg(type="event", kind="speaking_finished"))
+
+                # Texto temprano y voz comparten el bloqueo del pipeline.
+                if getattr(self.pipeline, "progress_aware", False):
+                    opciones["progress_voice"] = getattr(self.speak_fn, "__self__", None)
+                await asyncio.to_thread(
+                    self.pipeline, text, TURN_WAIT_TIMEOUT, False,
+                    on_response=entregar_y_hablar, **opciones)
+            else:
+                spoken = await asyncio.to_thread(
+                    self.pipeline, text, TURN_WAIT_TIMEOUT, self.speak_remote, **opciones)
+                await ws.send_json(self._response(spoken))
         except RemoteBusy:
             await ws.send_json(_msg(
                 type="response", ok=False, err="BUSY",
@@ -501,3 +541,23 @@ class GatewayServer:
             await ws.send_json(_msg(
                 type="response", ok=False, err="INTERNAL",
                 msg="Error interno procesando el comando."))
+
+    @staticmethod
+    def _session_id(ws):
+        """Cada conexión móvil tiene contexto propio; nunca usa la sesión local."""
+        import uuid
+        if not hasattr(ws, "_limits_session"):
+            ws._limits_session = "movil:" + uuid.uuid4().hex
+        return ws._limits_session
+
+    def _response(self, texto):
+        """Los artefactos se entregan mediante las URLs firmadas existentes."""
+        mensaje = _msg(type="response", ok=True, text=texto)
+        if hasattr(texto, "source"):
+            mensaje["source"] = texto.source
+            mensaje["artifacts"] = []
+            for ruta in getattr(texto, "artefactos", ()):
+                url = self.make_media_url(ruta)
+                if url:
+                    mensaje["artifacts"].append({"name": Path(ruta).name, "url": url})
+        return mensaje

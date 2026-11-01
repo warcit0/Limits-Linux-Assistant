@@ -1,0 +1,50 @@
+{
+  "shell_terminal": [
+    "ghostty",
+    "-e",
+    "bash",
+    "-c",
+    "echo inocuo; echo SEGUNDO_COMANDO; read -p 'Presiona Enter para cerrar'"
+  ],
+  "app_arbitraria": {
+    "grounding": true,
+    "argv": [
+      "python3",
+      "-c",
+      "print(\"solo prueba\")"
+    ]
+  },
+  "memoria_otro_hilo": {
+    "recall": [],
+    "remember": "No he podido guardarlo ahora mismo.",
+    "stats": {
+      "enabled": false,
+      "facts": 0,
+      "episodes": 0
+    }
+  },
+  "memoria_hilo_original": [
+    {
+      "key": "color",
+      "value": "azul",
+      "tags": ""
+    }
+  ],
+  "olvido_historial_restante": 1,
+  "rotacion": {
+    "archivo_cambio": true,
+    "servidor_conserva_anterior": true
+  },
+  "pending_despues_gemini": true,
+  "confirm_baja_confianza": true,
+  "path_guard_estado_anterior": null,
+  "gemini_source": {
+    "args": [
+      "respuesta Gemini"
+    ],
+    "kwargs": {}
+  },
+  "gate_libre_durante_tts_remoto": [
+    true
+  ]
+}

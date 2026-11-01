@@ -1,0 +1,20 @@
+{
+  "anterior": {
+    "ok": true,
+    "comprobaciones": [
+      "Servicio",
+      "Gateway",
+      "Auth",
+      "Micrófono"
+    ]
+  },
+  "objetivos": {
+    "ok": true,
+    "comprobaciones": [
+      "Servicio",
+      "Gateway",
+      "Auth",
+      "Micrófono"
+    ]
+  }
+}

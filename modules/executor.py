@@ -7,6 +7,8 @@ SEGURIDAD:
   - El estado de confirmación pendiente se guarda entre turnos.
 """
 
+import re
+
 from rich.console import Console
 from commands.apps import AppCommands
 from commands.system import SystemCommands
@@ -16,6 +18,7 @@ from commands.files import FileCommands
 from commands.custom import CustomCommands
 from commands.media import MediaCommands
 from commands.tv import TVCommands
+from commands.workspaces import WorkspaceCommands
 from modules.desktop_agent import DesktopAgent
 
 console = Console()
@@ -32,6 +35,7 @@ class CommandExecutor:
         self.custom  = CustomCommands()
         self.media   = MediaCommands()
         self.tv      = TVCommands()
+        self.workspaces = WorkspaceCommands()
         self.gemini  = None  # lo asigna main.py si GEMINI_ENABLED (GeminiBridge)
 
         # Estado de confirmación pendiente (antes del agent: propose_* lo usa)
@@ -52,6 +56,10 @@ class CommandExecutor:
             "open_application":     self.apps.open_app,
             "close_application":    self.apps.close_app,
             "list_running_apps":    self.apps.list_running,
+            "workspace_switch":     self.workspaces.switch,
+            "workspace_back":       self.workspaces.back,
+            "workspace_move":       self.workspaces.move_window,
+            "workspace_list":       self.workspaces.list_open,
             # Sistema
             "set_volume":           self.system.set_volume,
             "get_volume":           self.system.get_volume,
@@ -118,6 +126,10 @@ class CommandExecutor:
     # Interfaz pública
     # ──────────────────────────────────────────────────────────────────────────
 
+    def cancel_pending(self) -> None:
+        """Descarta la operación pendiente cuando otra ruta atiende el turno."""
+        self._pending_action = None
+
     def execute(self, parsed_result: dict) -> str:
         """
         Ejecuta la acción indicada por el LLM.
@@ -152,6 +164,7 @@ class CommandExecutor:
         # El LLM ya lo verificó contra el catálogo y el dominio; si no pudo
         # anclarla, se responde con honestidad en vez de ejecutar de más.
         if parsed_result.get("grounded") is False:
+            self.cancel_pending()
             reason = parsed_result.get("grounding_reason") or "sin_evidencia"
             console.print(f"[yellow]grounding: bloqueado ({reason}); "
                           f"no ejecuto '{action}'.[/yellow]")
@@ -199,9 +212,10 @@ class CommandExecutor:
         from modules.memory import get_store
         if not str(key).strip():
             return "¿Qué quieres que olvide?"
+        from modules.command_result import ResultadoComando
         if get_store().forget(str(key)):
-            return f"Olvidado: {key}."
-        return f"No tenía nada guardado sobre {key}."
+            return ResultadoComando(f"Olvidado: {key}.",ok=True,verificado=True)
+        return ResultadoComando(f"No pude confirmar el borrado de {key}; puede que no estuviera guardado.",ok=False)
 
     def _memory_list(self) -> str:
         from modules.memory import get_store
@@ -251,6 +265,11 @@ class CommandExecutor:
                 valid_params = {k: v for k, v in params.items() if k in sig.parameters}
                 
                 result = handler(**valid_params)
+                from modules.command_result import ResultadoComando
+                if isinstance(result, ResultadoComando):
+                    return result
+                if result and isinstance(result, str) and re.match(r"^(?:no\b|error\b|ocurri[oó]\b|⚠)", result.strip(), re.I):
+                    return result
                 if result and isinstance(result, str) and result != default_response:
                     return " ".join(p for p in (default_response, result) if p)
                 return default_response

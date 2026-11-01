@@ -4,9 +4,8 @@ DesktopAgent — lane compuesto para órdenes multi-paso de escritorio.
 El clasificador strict emite action=desktop_task con params.goal.
 Loop corto sobre tools TIPADAS (FileCommands). Sin shell libre.
 
-Motor preferido: OpenCode API (deepseek-v4.1-flash-free).
+Motor preferido: OpenCode DeepSeek; respaldo NVIDIA DeepSeek configurable.
 Fallback: Ollama local (p.ej. qwen2.5:3b-instruct).
-Groq / Big Pickle: fuera de alcance.
 
 Contrato de cada paso del modelo (JSON único):
   {"tool":"search_file","args":{"name":"x","path":"~/Downloads"}}
@@ -24,6 +23,7 @@ import json
 import logging
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
@@ -157,6 +157,7 @@ class DesktopAgent:
         opencode_model: str = "opencode/deepseek-v4.1-flash-free",
         fallback: str = "ollama",
         request_timeout_s: float = 60.0,
+        proveedor_remoto=None,
     ):
         self.files = files
         self.ollama_url = ollama_url.rstrip("/")
@@ -167,11 +168,12 @@ class DesktopAgent:
         self._set_pending = pending_setter
         self._llm_callable = llm_callable
         self.provider = (provider or "opencode").strip().lower()
-        self.opencode_api_key = load_opencode_api_key(opencode_api_key)
+        self.opencode_api_key = load_opencode_api_key(opencode_api_key) if self.provider == "opencode" else ""
         self.opencode_base_url = opencode_base_url.rstrip("/")
         self.opencode_model = opencode_model
         self.fallback = (fallback or "ollama").strip().lower()
         self.request_timeout_s = request_timeout_s
+        self.proveedor_remoto = proveedor_remoto
         self._tools: dict[str, Callable[..., str]] = {}
         self._observed_paths: set[str] = set()
         self._opencode_failed = False  # evita martillar API cada paso tras fallo
@@ -192,7 +194,8 @@ class DesktopAgent:
             "list_directory": self.files.list_directory,
         }
 
-    def run(self, goal: str) -> str:
+    def run(self, goal: str, cancel_event=None) -> str:
+        cancel_event = cancel_event or getattr(self, "cancel_event", None)
         goal = (goal or "").strip()
         if not goal:
             return "¿Qué tarea de archivos quieres hacer?"
@@ -205,7 +208,11 @@ class DesktopAgent:
         ]
 
         for step in range(self.max_steps):
+            if cancel_event is not None and cancel_event.is_set():
+                return "Tarea cancelada."
             decision = self._plan(messages)
+            if cancel_event is not None and cancel_event.is_set():
+                return "Tarea cancelada."
             if not decision:
                 return "No pude completar la tarea de archivos ahora."
 
@@ -213,6 +220,10 @@ class DesktopAgent:
             args = decision.get("args") or {}
             if not isinstance(args, dict):
                 args = {}
+
+            if tool in {"open_file", "open_last", "search_and_open", "reveal_file", "reveal_last"} and not re.search(
+                    r"\b(abre|abrir|abralo|ábrelo|ábrela|muestra|muéstra|mostrar|revela)\w*", goal.casefold()):
+                return "No abriré aplicaciones: esa acción no forma parte de la tarea solicitada."
 
             console.print(f"[dim]desktop_task paso {step + 1}: {tool} {args}[/dim]")
             log.info("desktop_task step=%s tool=%s", step + 1, tool)
@@ -334,6 +345,9 @@ class DesktopAgent:
         if self._llm_callable is not None:
             return self._llm_callable(messages)
 
+        if self.provider == "nvidia":
+            return self._query_nvidia(messages)
+
         # 1) OpenCode
         if self.provider == "opencode" and not self._opencode_failed:
             if not self.opencode_api_key:
@@ -350,10 +364,26 @@ class DesktopAgent:
                 log.warning("opencode agent failed; falling back to %s",
                             self.fallback)
 
-        # 2) Ollama (provider=ollama o fallback)
+        if self.provider == "opencode" and self.fallback == "nvidia":
+            return self._query_nvidia(messages)
+
+        # Ollama solo si se configura expresamente.
         if self.provider == "ollama" or self.fallback == "ollama":
             return self._query_ollama(messages)
         return None
+
+    def _query_nvidia(self, messages):
+        from modules.agent_providers import ErrorProveedor
+        if self.proveedor_remoto is None:
+            return None
+        try:
+            return self.proveedor_remoto.consultar(
+                AGENT_SYSTEM, {"mensajes": messages[1:],
+                               "herramientas_escritorio": list(self._tools) + ["done", "ask_user", "propose_move", "propose_rename"]},
+                tarea=None, cancelar=getattr(self, "cancel_event", None) or threading.Event(), timeout=self.request_timeout_s)
+        except ErrorProveedor:
+            log.warning("El respaldo NVIDIA DeepSeek no pudo planificar el paso de escritorio.")
+            return None
 
     def _query_opencode(self, messages: list[dict]) -> dict | None:
         url = f"{self.opencode_base_url}/chat/completions"

@@ -1,0 +1,350 @@
+{
+  "microfono_manual": "no probado; usuario solicitó continuar automáticamente",
+  "workspace": {
+    "ok": true,
+    "segundos": 0.02,
+    "respuesta": "Estás en el espacio de trabajo 1; he comprobado el cambio.",
+    "restaurado": true
+  },
+  "gemini": {
+    "ok": true,
+    "segundos_total_con_audio": 111.913,
+    "eventos": [
+      {
+        "tipo": "status",
+        "segundos": 0.007,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 1.084,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 5.375,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 5.731,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 6.084,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 6.436,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 6.804,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 7.155,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 7.509,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 7.862,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 8.214,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 8.567,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 8.92,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 9.272,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 9.625,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 9.977,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 10.33,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 10.682,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 11.035,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 11.388,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 11.74,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 12.094,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 12.446,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 12.799,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 13.152,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 13.504,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 13.857,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 14.21,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 14.562,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 14.915,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 15.268,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 15.621,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 15.974,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 16.326,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 16.679,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 17.031,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 17.384,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 17.739,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 18.092,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 18.444,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 18.796,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 19.149,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 19.502,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 19.855,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 20.207,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 20.56,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 20.913,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 21.265,
+        "chars": 0
+      },
+      {
+        "tipo": "status",
+        "segundos": 21.618,
+        "chars": 0
+      },
+      {
+        "tipo": "delta",
+        "segundos": 21.972,
+        "chars": 12
+      },
+      {
+        "tipo": "delta",
+        "segundos": 22.325,
+        "chars": 47
+      },
+      {
+        "tipo": "delta",
+        "segundos": 22.681,
+        "chars": 201
+      },
+      {
+        "tipo": "delta",
+        "segundos": 23.035,
+        "chars": 315
+      },
+      {
+        "tipo": "delta",
+        "segundos": 23.387,
+        "chars": 450
+      },
+      {
+        "tipo": "delta",
+        "segundos": 23.741,
+        "chars": 703
+      },
+      {
+        "tipo": "delta",
+        "segundos": 24.209,
+        "chars": 824
+      },
+      {
+        "tipo": "delta",
+        "segundos": 24.562,
+        "chars": 1053
+      },
+      {
+        "tipo": "delta",
+        "segundos": 24.915,
+        "chars": 1226
+      },
+      {
+        "tipo": "delta",
+        "segundos": 25.623,
+        "chars": 1283
+      },
+      {
+        "tipo": "final",
+        "segundos": 29.207,
+        "chars": 0
+      }
+    ],
+    "audio": [
+      {
+        "tipo": "estado",
+        "recibido_s": 0.0,
+        "sintesis_s": 0.0,
+        "pcm_s": 1.385,
+        "latencia_desde_frase_s": 1.384
+      },
+      {
+        "tipo": "contenido",
+        "recibido_s": 22.674,
+        "sintesis_s": 22.674,
+        "pcm_s": 24.238,
+        "latencia_desde_frase_s": 1.564
+      },
+      {
+        "tipo": "contenido",
+        "recibido_s": 29.24,
+        "sintesis_s": 35.647,
+        "pcm_s": 36.905,
+        "latencia_desde_frase_s": 7.664
+      },
+      {
+        "tipo": "contenido",
+        "recibido_s": 29.241,
+        "sintesis_s": 40.508,
+        "pcm_s": 42.042,
+        "latencia_desde_frase_s": 12.802
+      }
+    ],
+    "habla_antes_del_final": true,
+    "acuse_pcm_menos_2s": true,
+    "pregunta_continuacion": true
+  },
+  "ok": true,
+  "nota": "Medición de PCM previa al ajuste final de espacios del DOM. Hubo corrección y repetición; no acredita ausencia de duplicación. La corrección posterior se valida en fragmentos.json y regresiones."
+}

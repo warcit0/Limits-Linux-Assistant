@@ -1,0 +1,13 @@
+{
+  "prueba_modelo": {
+    "modelo": "z-ai/glm-5.3-flash",
+    "error": "ReadTimeout",
+    "segundos": 60.13
+  },
+  "control_clave": {
+    "prueba": "control de clave GLM con Nemotron",
+    "http": 200,
+    "segundos": 0.67
+  },
+  "activado": false
+}

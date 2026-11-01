@@ -3,6 +3,7 @@
 import os
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from modules.memory import MemoryStore, normalize_key, redact
@@ -14,6 +15,47 @@ class TestMemoryStore(unittest.TestCase):
 
     def tearDown(self):
         self.store.close()
+
+    def test_memoria_compartida_entre_voz_y_trabajador_remoto(self):
+        self.store.remember("proyecto", "Limits")
+
+        def turno_remoto():
+            self.assertEqual(self.store.recall("proyecto")[0]["value"], "Limits")
+            self.assertIn("Anotado", self.store.remember("color", "azul"))
+            self.store.log_turn("user", "recuerda que mi color es azul")
+            self.assertIn("azul", self.store.facts_block())
+
+        with ThreadPoolExecutor(max_workers=1) as trabajadores:
+            trabajadores.submit(turno_remoto).result(timeout=5)
+        self.assertEqual(self.store.recall("color")[0]["value"], "azul")
+        self.assertEqual(len(self.store.recent_turns()), 1)
+        self.assertEqual(self.store.stats()["facts"], 2)
+
+    def test_escrituras_concurrentes_sin_perder_hechos_ni_episodios(self):
+        def guardar(numero):
+            self.assertIn("Anotado", self.store.remember(f"dato {numero}", "valor"))
+            self.store.log_turn("user", f"mensaje {numero}")
+
+        with ThreadPoolExecutor(max_workers=8) as trabajadores:
+            list(trabajadores.map(guardar, range(40)))
+        self.assertEqual(self.store.stats()["facts"], 40)
+        self.assertEqual(self.store.stats()["episodes"], 40)
+
+    def test_fallo_revierte_transaccion_y_registra_solo_tipo(self):
+        self.store.remember("proyecto", "Limits")
+        self.store._conn.execute("""
+            CREATE TRIGGER fallo_prueba BEFORE UPDATE ON facts BEGIN
+                SELECT RAISE(ABORT, 'contenido privado de prueba');
+            END;
+        """)
+        with self.assertLogs("limits.memory", level="WARNING") as registro:
+            respuesta = self.store.remember("proyecto", "otro valor privado")
+        self.assertIn("No he podido", respuesta)
+        self.assertIn("IntegrityError", " ".join(registro.output))
+        self.assertNotIn("privado", " ".join(registro.output))
+        self.assertEqual(self.store.recall("proyecto")[0]["value"], "Limits")
+        self.assertEqual(self.store._conn.execute(
+            "SELECT COUNT(*) FROM fact_history").fetchone()[0], 0)
 
     def test_recuerda_y_lee(self):
         msg = self.store.remember("mi proyecto principal", "Limits")

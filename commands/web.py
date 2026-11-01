@@ -31,14 +31,22 @@ class WebCommands:
             query:  Texto a buscar
             engine: Motor de búsqueda (google, duckduckgo, bing, github, youtube)
         """
-        base_url = SEARCH_ENGINES.get(engine.lower(), SEARCH_ENGINES["google"])
+        from modules.command_result import ResultadoComando
+        engine = engine.lower()
+        if engine not in SEARCH_ENGINES:
+            return ResultadoComando('El motor de búsqueda solicitado no está disponible.',ok=False)
+        base_url = SEARCH_ENGINES[engine]
         url = base_url + quote_plus(query)
         console.print(f"[green]🔍 Buscando en {engine}: {query}[/green]")
-        self._open_browser(url)
+        try:
+            self._open_browser(url)
+        except OSError:
+            return ResultadoComando('No pude iniciar el navegador para abrir la búsqueda.',ok=False)
+        enviado = f'He enviado al navegador la búsqueda de {query} en {engine}.'
         
         # Saltamos el scraper de voz si es una búsqueda de videos o github
         if engine.lower() in ("youtube", "github"):
-            return ""
+            return ResultadoComando(enviado,ok=True,verificado=False)
             
         # Intentar extraer un snippet rápido para leerlo en voz alta (usando DDG Lite por velocidad)
         try:
@@ -63,11 +71,11 @@ class WebCommands:
                     # Limitar a ~250 caracteres para no cansar al usuario escuchando
                     if len(clean_text) > 250:
                         clean_text = clean_text[:250].rsplit(' ', 1)[0] + "..."
-                    return f"Según internet: {clean_text}"
+                    return ResultadoComando(enviado+f" Según internet: {clean_text}",ok=True,verificado=False)
         except Exception as e:
             console.print(f"[dim]No se pudo extraer resumen de voz: {e}[/dim]")
             
-        return ""
+        return ResultadoComando(enviado,ok=True,verificado=False)
 
     def open_url(self, url: str) -> None:
         """

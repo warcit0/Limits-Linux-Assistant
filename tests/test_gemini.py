@@ -113,6 +113,7 @@ class TestGeminiBridge(unittest.TestCase):
             self._bridge(tmp).chat("novedades de cohetes", research=True)
             prompt = run.call_args.args[0][-1]
             self.assertIn("MODO INVESTIGACIÓN", prompt)
+            self.assertEqual(run.call_args.kwargs["env"]["GEMDEV_USE_DAEMON"], "0")
 
     @mock.patch("modules.gemini.subprocess.run")
     def test_error_locked_da_frase_amable(self, run):
@@ -174,7 +175,8 @@ class TestGeminiBridge(unittest.TestCase):
             "setenta por ciento del mercado de escritorio sigue en Once según "
             "StatCounter. Si aparece un sucesor, Microsoft lo anunciaría en un "
             "evento Build o Surface con fechas concretas, no por filtraciones "
-            "sin fuentes. Eso es lo que hay hoy contrastado."
+            "sin fuentes. Eso es lo que hay hoy contrastado. "
+            "Fuentes de ejemplo: https://example.org/reporte https://example.net/noticia"
         )
         with tempfile.TemporaryDirectory() as tmp:
             art = Path(tmp) / "ok.md"
@@ -184,6 +186,17 @@ class TestGeminiBridge(unittest.TestCase):
                 "investiga Windows 12", research=True)
             self.assertIn("Windows", out)
             self.assertGreaterEqual(len(out), 200)
+
+    @mock.patch("modules.gemini.subprocess.run")
+    def test_research_larga_sin_enlaces_no_se_presenta_como_verificada(self, run):
+        with tempfile.TemporaryDirectory() as tmp:
+            art = Path(tmp) / "sin-fuentes.md"
+            art.write_text("Resumen de investigación de 2026 con detalles. " * 20, encoding="utf-8")
+            run.return_value = _proc(json.dumps({"ok": True, "f": str(art)}))
+            puente = self._bridge(tmp)
+            out = puente.chat("investiga novedades", research=True)
+            self.assertIn("no incluyó", out)
+            self.assertFalse(puente.last_full_text)
 
 
 class TestHollowHelper(unittest.TestCase):

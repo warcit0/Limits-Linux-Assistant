@@ -185,3 +185,30 @@ Guía técnica detallada (convenciones, seguridad, estructura interna) en [AGENT
 ## 📄 Licencia
 
 MIT — ver [LICENSE](LICENSE).
+
+## Presencia animada
+
+Limits puede aparecer como un núcleo orgánico arriba a la derecha mientras
+escucha, piensa o habla. Reacciona al audio generado y permite detener el turno.
+Requiere Quickshell; activar con `./setup-widget.sh`, `PRESENCE_ENABLED=true` en
+`.env` y reiniciar Limits. Tamaño, márgenes, opacidad, monitor y movimiento reducido
+se documentan en `.env.example`. La interfaz tiene un servicio independiente:
+`systemctl --user stop limits-widget.service` la oculta sin detener al asistente.
+
+[Diseño y alcance](docs/plan-mejora-3-widget-presencia.md) ·
+[Validación y límites](docs/validaciones/mejora-3.md).
+
+### Recorrido local con Qwen (mejora 6)
+
+`AGENT_MODE=local` usa atajos locales para órdenes inequívocas y Qwen/Ollama para
+el resto del uso cotidiano. Fuerza este proveedor aunque queden flags históricos
+apuntando a Groq; desarrollo, análisis complejo e investigación conservan sus roles.
+`AGENT_MODE=legacy` recupera la configuración anterior. El modelo local instalado
+no se cambia automáticamente.
+
+[Plan](docs/plan-mejora-6-qwen-local.md), [estado y límites de aceptación](docs/validaciones/mejora-6-qwen-local.md).
+La implementación no equivale a funcionamiento por voz validado; no se ejecutaron
+pruebas durante esta entrega por petición del usuario.
+
+La [integración Spotify MCP](docs/spotify-mcp.md) está preparada y desactivada hasta
+configurar Client ID y autorizar la cuenta con `./bin/limits-spotify-login`.

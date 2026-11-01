@@ -187,6 +187,15 @@ class ElevenLabsEngine:
         return r.content
 
     def _play(self, path: Path, est_seconds: float, stop_event=None) -> str:
+        from modules.presence import obtener
+        if obtener() is not None:
+            import shutil
+            if shutil.which("ffmpeg"):
+                from modules.audio_meter import reproducir_archivo
+                resultado = reproducir_archivo(path, stop_event)
+                if resultado == "error":
+                    raise TTSUnavailable("falló la reproducción PCM")
+                return resultado
         players = [
             ["mpv", "--no-video", "--terminal=no", "--really-quiet"],
             ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet"],

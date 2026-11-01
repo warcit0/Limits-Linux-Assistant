@@ -11,16 +11,21 @@ from __future__ import annotations
 
 import atexit
 import hashlib
+import logging
+import threading
+from functools import wraps
 import os
 import re
 import sqlite3
 import unicodedata
 from datetime import datetime
 from pathlib import Path
+log = logging.getLogger("limits.memory")
 DEFAULT_MAX_BYTES = 600
 
 # ── Redacción en escritura: secretos que jamás deben quedar en disco ────────
 _REDACTIONS = (
+    (re.compile(r"\bnvapi-[A-Za-z0-9_-]{8,}\b"), "[redactado]"),
     (re.compile(r"\bgsk_[A-Za-z0-9]{8,}\b"), "[redactado]"),
     (re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"), "[redactado]"),
     (re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"), "[redactado]"),
@@ -114,9 +119,19 @@ def _ts() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def _sincronizar(metodo):
+    """Protege la operación completa, incluida su transacción, entre hilos."""
+    @wraps(metodo)
+    def protegido(self, *args, **kwargs):
+        with self._lock:
+            return metodo(self, *args, **kwargs)
+    return protegido
+
+
 class MemoryStore:
     def __init__(self, path: str | Path = "~/.limits/memory.db",
                  enabled: bool = True):
+        self._lock = threading.RLock()
         self.path = str(Path(path).expanduser())
         self.enabled = False
         self._conn: sqlite3.Connection | None = None
@@ -126,7 +141,7 @@ class MemoryStore:
         try:
             if self.path != ":memory:":
                 Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(self.path, timeout=5)
+            conn = sqlite3.connect(self.path, timeout=5, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
@@ -136,7 +151,8 @@ class MemoryStore:
                 os.chmod(self.path, 0o600)
             self._conn = conn
             self.enabled = True
-        except Exception:
+        except Exception as error:
+            log.warning("Memoria: fallo al abrir (%s)", type(error).__name__)
             if conn is not None:
                 try:
                     conn.close()
@@ -145,7 +161,17 @@ class MemoryStore:
             self._conn = None
             self.enabled = False
 
+    def _registrar_fallo(self, operacion: str, error: Exception) -> None:
+        """Registra solo el tipo de fallo y descarta transacciones incompletas."""
+        log.warning("Memoria: fallo en %s (%s)", operacion, type(error).__name__)
+        if self._conn is not None:
+            try:
+                self._conn.rollback()
+            except sqlite3.Error:
+                pass
+
     # ── Hechos ───────────────────────────────────────────────────────────────
+    @_sincronizar
     def remember(self, key: str, value: str, tags: str = "") -> str:
         """Upsert de un hecho. Sin clave → nota libre (`nota:<hash>`)."""
         value = redact(str(value)).strip()
@@ -175,28 +201,43 @@ class MemoryStore:
                     "UPDATE facts SET value = ?, tags = ?, updated_at = ? WHERE id = ?",
                     (value, tags, now, row["id"]))
             self._conn.commit()
-        except Exception:
+        except Exception as error:
+            self._registrar_fallo("remember", error)
             return "No he podido guardarlo ahora mismo."
-        if is_note:
-            return "Anotado: lo tendré en cuenta."
+        from modules.command_result import ResultadoComando
         legible = norm.replace("_", " ")
-        return f"Anotado: {legible} es {value}."
+        texto = "Anotado: lo tendré en cuenta." if is_note else f"Anotado: {legible} es {value}."
+        return ResultadoComando(texto,ok=True,verificado=True)  # Transacción confirmada arriba.
 
+    @_sincronizar
     def forget(self, key: str) -> bool:
         """Borra un hecho por clave exacta o, si no hay, por parecido."""
         if not self.enabled or self._conn is None:
             return False
         norm = normalize_key(key)
         try:
+            filas = self._conn.execute("SELECT id,key,value FROM facts WHERE key=?",(norm,)).fetchall()
+            if not filas and len(norm)>=3:
+                filas = self._conn.execute("SELECT id,key,value FROM facts WHERE key LIKE ?",(f"%{norm}%",)).fetchall()
+            for fila in filas:
+                self._conn.execute("DELETE FROM fact_history WHERE fact_id=?",(fila['id'],))
+                self._conn.execute("UPDATE episodes SET ok=0 WHERE instr(text,?)>0 OR instr(lower(text),?)>0",(fila['value'],fila['key'].replace('_',' ')))
             cur = self._conn.execute("DELETE FROM facts WHERE key = ?", (norm,))
             if cur.rowcount == 0 and len(norm) >= 3:
                 cur = self._conn.execute(
                     "DELETE FROM facts WHERE key LIKE ?", (f"%{norm}%",))
             self._conn.commit()
             return cur.rowcount > 0
-        except Exception:
+        except Exception as error:
+            self._registrar_fallo("forget", error)
             return False
 
+    def _visibles(self):
+        if not self._conn.execute("SELECT 1 FROM sqlite_master WHERE name='knowledge'").fetchone():
+            return ""
+        return " AND NOT EXISTS (SELECT 1 FROM knowledge k WHERE k.fact_key=facts.key AND (k.conflict=1 OR k.deleted=1 OR k.status!='confirmado'))"
+
+    @_sincronizar
     def recall(self, query: str, limit: int = 5) -> list[dict]:
         """Búsqueda FTS5 (sin acentos); fallback a LIKE si FTS no está."""
         if not self.enabled or self._conn is None or not str(query).strip():
@@ -212,32 +253,36 @@ class MemoryStore:
                 rows = self._conn.execute(
                     "SELECT key, value, tags FROM facts"
                     " WHERE id IN (SELECT rowid FROM facts_fts WHERE facts_fts MATCH ?)"
-                    " ORDER BY COALESCE(last_used_at, updated_at) DESC LIMIT ?",
+                    + self._visibles() + " ORDER BY COALESCE(last_used_at, updated_at) DESC LIMIT ?",
                     (match, limit)).fetchall()
-            except Exception:
+            except Exception as error:
+                self._registrar_fallo("recall", error)
                 rows = []
         if not rows:
             like = f"%{tokens[0]}%" if tokens else f"%{query}%"
             try:
                 rows = self._conn.execute(
                     "SELECT key, value, tags FROM facts"
-                    " WHERE key LIKE ? OR value LIKE ?"
-                    " ORDER BY COALESCE(last_used_at, updated_at) DESC LIMIT ?",
+                    " WHERE (key LIKE ? OR value LIKE ?)"
+                    + self._visibles() + " ORDER BY COALESCE(last_used_at, updated_at) DESC LIMIT ?",
                     (like, like, limit)).fetchall()
-            except Exception:
+            except Exception as error:
+                self._registrar_fallo("recall", error)
                 return []
         return [dict(r) for r in rows]
 
+    @_sincronizar
     def facts_block(self, max_bytes: int = DEFAULT_MAX_BYTES) -> str:
         """Bloque para `{memory}`: recencia primero, nunca corta una palabra."""
         if not self.enabled or self._conn is None:
             return ""
         try:
             rows = self._conn.execute(
-                "SELECT id, key, value FROM facts"
-                " ORDER BY COALESCE(last_used_at, updated_at) DESC, id DESC"
+                "SELECT id, key, value FROM facts WHERE 1=1"
+                + self._visibles() + " ORDER BY COALESCE(last_used_at, updated_at) DESC, id DESC"
             ).fetchall()
-        except Exception:
+        except Exception as error:
+            self._registrar_fallo("facts_block", error)
             return ""
         lines, used, ids = [], 0, []
         for row in rows:
@@ -255,23 +300,26 @@ class MemoryStore:
                 self._conn.executemany(
                     "UPDATE facts SET last_used_at = ? WHERE id = ?", ids)
                 self._conn.commit()
-            except Exception:
-                pass
+            except Exception as error:
+                self._registrar_fallo("facts_block", error)
         return "\n".join(lines)
 
+    @_sincronizar
     def list_facts(self, limit: int = 20) -> list[dict]:
         if not self.enabled or self._conn is None:
             return []
         try:
             rows = self._conn.execute(
-                "SELECT key, value, updated_at FROM facts"
-                " ORDER BY COALESCE(last_used_at, updated_at) DESC LIMIT ?",
+                "SELECT key, value, updated_at FROM facts WHERE 1=1"
+                + self._visibles() + " ORDER BY COALESCE(last_used_at, updated_at) DESC LIMIT ?",
                 (limit,)).fetchall()
             return [dict(r) for r in rows]
-        except Exception:
+        except Exception as error:
+            self._registrar_fallo("list_facts", error)
             return []
 
     # ── Episodios ────────────────────────────────────────────────────────────
+    @_sincronizar
     def log_turn(self, role: str, text: str, intent: str | None = None,
                  ok: bool | None = None, meta: dict | None = None) -> None:
         if not self.enabled or self._conn is None or not text:
@@ -289,20 +337,23 @@ class MemoryStore:
             self._conn.execute(
                 "DELETE FROM episodes WHERE id <= (SELECT MAX(id) - 5000 FROM episodes)")
             self._conn.commit()
-        except Exception:
-            pass
+        except Exception as error:
+            self._registrar_fallo("log_turn", error)
 
+    @_sincronizar
     def recent_turns(self, n: int = 6) -> list[dict]:
         if not self.enabled or self._conn is None:
             return []
         try:
             rows = self._conn.execute(
                 "SELECT role, text FROM episodes WHERE role IN ('user', 'assistant')"
-                " ORDER BY id DESC LIMIT ?", (n,)).fetchall()
+                " AND (ok IS NULL OR ok=1) ORDER BY id DESC LIMIT ?", (n,)).fetchall()
             return [dict(r) for r in reversed(rows)]
-        except Exception:
+        except Exception as error:
+            self._registrar_fallo("recent_turns", error)
             return []
 
+    @_sincronizar
     def stats(self) -> dict:
         if not self.enabled or self._conn is None:
             return {"enabled": False, "facts": 0, "episodes": 0}
@@ -311,44 +362,50 @@ class MemoryStore:
             episodes = self._conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
             return {"enabled": True, "facts": facts, "episodes": episodes,
                     "path": self.path}
-        except Exception:
+        except Exception as error:
+            self._registrar_fallo("stats", error)
             return {"enabled": False, "facts": 0, "episodes": 0}
 
+    @_sincronizar
     def close(self) -> None:
         if self._conn is not None:
             try:
                 self._conn.close()
-            except Exception:
-                pass
+            except Exception as error:
+                self._registrar_fallo("close", error)
             self._conn = None
 
 
 # ── Singleton perezoso (no toca disco al importar ni al construir Limits) ───
 _default_store: MemoryStore | None = None
+_store_lock = threading.RLock()
 
 
 def get_store() -> MemoryStore:
     global _default_store
-    if _default_store is None:
-        try:
-            from config import Config
-            cfg = Config()
-            _default_store = MemoryStore(cfg.MEMORY_PATH,
-                                         enabled=cfg.MEMORY_ENABLED)
-        except Exception:
-            _default_store = MemoryStore(enabled=False)
-    return _default_store
+    with _store_lock:
+        if _default_store is None:
+            try:
+                from config import Config
+                cfg = Config()
+                _default_store = MemoryStore(cfg.MEMORY_PATH,
+                                             enabled=cfg.MEMORY_ENABLED)
+            except Exception:
+                _default_store = MemoryStore(enabled=False)
+        return _default_store
 
 
 def set_store(store: MemoryStore | None) -> None:
     """Reemplaza el singleton (tests o arranque explícito)."""
     global _default_store
-    _default_store = store
+    with _store_lock:
+        _default_store = store
 
 
 def _close_default_store() -> None:
-    if _default_store is not None:
-        _default_store.close()
+    with _store_lock:
+        if _default_store is not None:
+            _default_store.close()
 
 
 atexit.register(_close_default_store)

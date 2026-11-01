@@ -97,6 +97,9 @@ class STTEngine:
                 is_speech = False
 
             if is_speech:
+                if not speaking:
+                    from modules.presence import escucha
+                    escucha(True)
                 speaking = True
                 silent_frames = 0
                 no_speech_frames = 0

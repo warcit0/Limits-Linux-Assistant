@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import subprocess
 import unicodedata
@@ -30,16 +31,19 @@ PREAMBLE = (
     "Eres Limits, la IA personal de escritorio de warcito (CachyOS + Hyprland), "
     "con tono cercano tipo Jarvis. Responde SIEMPRE en español hablado y natural, "
     "como si lo fueras a decir en voz alta: frases cortas, sin markdown, sin "
-    "listas, sin emojis, sin URLs crudas (describe los enlaces con palabras). "
+    "listas, sin emojis. En charla normal no uses URLs crudas. "
     "Para charla normal: máximo ~120 palabras. "
-    "Si el mensaje lleva MODO INVESTIGACIÓN, IGNORA ese tope y da un resumen "
-    "hablado sustancial con hechos concretos."
+    "Si el mensaje lleva MODO INVESTIGACIÓN, sus instrucciones de extensión, "
+    "formato y fuentes PREVALECEN sobre estas reglas de charla."
 )
 
 RESEARCH_MARK = (
     "[MODO INVESTIGACIÓN — OBLIGATORIO]\n"
     "Usa búsqueda web. Contrasta al menos dos fuentes y menciónalas en voz "
     "('según Reuters', 'según la BBC'). "
+    "Incluye fechas concretas y al final al menos dos URLs completas visibles como texto "
+    "(https://...), no enlaces ocultos bajo etiquetas ni solo nombres de medios. "
+    "Limits limpiará los enlaces antes de leerlos en voz alta. "
     "Responde con un resumen hablado de AL MENOS 120 palabras con hechos "
     "concretos (fechas, nombres, cifras). "
     "PROHIBIDO responder solo con un saludo o apertura vacía tipo "
@@ -131,14 +135,17 @@ class GeminiBridge:
                  max_voice_chars: int = 900,
                  preamble: str = PREAMBLE,
                  min_research_chars: int = 200,
-                 min_talk_chars: int = 8):
-        self.bin = gemini_bin
+                 min_talk_chars: int = 8,
+                 research_daemon: bool = False, streaming: bool = True):
+        self.bin = str(Path(gemini_bin).expanduser())
         self.timeout_s = max(30, int(timeout_s))
         self.session_file = session_file
         self.max_voice_chars = max_voice_chars
         self.preamble = preamble
         self.min_research_chars = max(50, int(min_research_chars))
         self.min_talk_chars = max(1, int(min_talk_chars))
+        self.research_daemon = research_daemon
+        self.streaming = streaming
 
     def available(self) -> bool:
         p = Path(self.bin).expanduser()
@@ -146,13 +153,22 @@ class GeminiBridge:
 
     # ──────────────────────────────────────────────────────────────────────
 
-    def chat(self, query: str, research: bool = False) -> str:
+    def chat(self, query: str, research: bool = False, cancel_event=None, on_event=None) -> str:
         """Un turno contra Gemini Web. Devuelve TEXTO PARA VOZ (limpio).
 
         Nunca lanza: cualquier fallo / respuesta hueca → frase hablada explícita.
         """
+        from modules.presence import fase
+        fase("investigando")
+        self.last_full_text = ""
         body = (RESEARCH_MARK + query.strip()) if research else query.strip()
         full_prompt = f"{self.preamble}\n\n{body}"
+        if research:
+            from modules.clock import now_line
+            full_prompt += ("\n" + now_line() + "\nDistingue fecha de publicación y fecha del hecho. "
+                            "Para cada noticia escribe Publicación: YYYY-MM-DD junto a su fuente. "
+                            "Si piden hoy, incluye solo publicaciones de hoy o reconoce que no las encontraste. "
+                            "Al terminar haz una pregunta breve y específica que permita profundizar en el tema.")
         mode = "research" if research else "talk"
 
         cmd = [
@@ -166,10 +182,25 @@ class GeminiBridge:
 
         log.info("gemini %s start timeout=%ss", mode, self.timeout_s)
         try:
-            proc = subprocess.run(
-                cmd, capture_output=True, text=True,
-                timeout=self.timeout_s + 45,
-            )
+            if on_event is not None and self.streaming:
+                from modules.streaming import proceso_eventos
+                cmd.insert(2, "--events")
+                proc = proceso_eventos(cmd, on_event, cancel_event,
+                                      min(self.timeout_s + 45, getattr(self, "process_timeout", self.timeout_s + 45)))
+            elif cancel_event is None:
+                proc = subprocess.run(
+                    cmd, capture_output=True, text=True,
+                    timeout=self.timeout_s + 45,
+                    **({"env": {**os.environ, "GEMDEV_USE_DAEMON": "0"}}
+                       if research and not self.research_daemon else {}),
+                )
+            else:
+                from modules.agent_providers import ejecutar_proceso
+                codigo, salida, errores = ejecutar_proceso(
+                    cmd, cancelar=cancel_event,
+                    env={"GEMDEV_USE_DAEMON": "0"} if research and not self.research_daemon else None,
+                    timeout=min(self.timeout_s + 45, getattr(self, "process_timeout", self.timeout_s + 45)))
+                proc = subprocess.CompletedProcess(cmd, codigo, salida, errores)
         except subprocess.TimeoutExpired:
             log.error("gemini %s TimeoutExpired", mode)
             return "Gemini tardó demasiado en responder."
@@ -235,6 +266,26 @@ class GeminiBridge:
             log.warning("gemini talk demasiado corta chars=%s", len(cleaned))
             return "Gemini me devolvió casi nada. Inténtalo de nuevo."
 
+        if research and (len(set(re.findall(r"https?://.*?(?=https?://|[\s)<>]|$)", text))) < 2
+                         or not re.search(r"\b(?:19|20)\d{2}\b", text)):
+            return ("No pude completar la investigación: Gemini no incluyó al menos "
+                    "dos fuentes con enlaces y fechas comprobables. No presentaré "
+                    "esa respuesta como información verificada.")
+
+        if research and re.search(r"\bhoy\b", _norm(query)):
+            from modules.clock import _now, _MESES
+            # La fecha de consulta sola no acredita la fecha de publicación.
+            fecha = _now().date().isoformat()
+            publicaciones = re.findall(r"publicaci[oó]n\s*:\s*(\d{4}-\d{2}-\d{2})", text, re.I)
+            for dia, mes, ano in re.findall(r"(?:publicad[oa]|publicaci[oó]n)[^.\n]{0,24}?(\d{1,2}) de (\w+) de (\d{4})", text, re.I):
+                if mes.casefold() in _MESES:
+                    publicaciones.append(f"{int(ano):04d}-{_MESES.index(mes.casefold())+1:02d}-{int(dia):02d}")
+            sin_noticias = re.search(r"no (?:encontr[eé]|hall[eé]|hay).{0,100}(?:hoy|esa fecha)", text, re.I)
+            permite_anteriores = "anteriores" in _norm(query) and re.search(r"[uú]ltimos d[ií]as|anteriores|otra fecha", text, re.I)
+            if not sin_noticias and (fecha not in publicaciones or (not permite_anteriores and any(f != fecha for f in publicaciones))):
+                return "La respuesta no acredita noticias publicadas hoy. No la daré por una investigación actualizada del día."
+
+        self.last_full_text = text
         if len(cleaned) > self.max_voice_chars:
             cut = cleaned.rfind(". ", 0, self.max_voice_chars)
             cut = cut + 1 if cut > 200 else self.max_voice_chars

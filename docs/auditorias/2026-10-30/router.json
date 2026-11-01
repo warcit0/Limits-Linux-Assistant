@@ -1,0 +1,268 @@
+{
+  "accuracy": 1.0,
+  "ok": 32,
+  "total": 32,
+  "min_accuracy": 0.9,
+  "passed_threshold": true,
+  "p50_ms": 1566.8,
+  "p95_ms": 3185.8,
+  "ollama_model": "qwen2.5:1.5b-instruct",
+  "rows": [
+    {
+      "phrase": "abre el navegador",
+      "expected": "open_application",
+      "got": "open_application",
+      "via": "app_router",
+      "ms": 0.1,
+      "ok": true
+    },
+    {
+      "phrase": "abre discord",
+      "expected": "open_application",
+      "got": "open_application",
+      "via": "app_router",
+      "ms": 0.0,
+      "ok": true
+    },
+    {
+      "phrase": "cierra spotify",
+      "expected": "close_application",
+      "got": "close_application",
+      "via": "app_router",
+      "ms": 0.0,
+      "ok": true
+    },
+    {
+      "phrase": "trae Discord al frente",
+      "expected": "focus_window",
+      "got": "focus_window",
+      "via": "app_router",
+      "ms": 0.0,
+      "ok": true
+    },
+    {
+      "phrase": "muéstrame spotify en pantalla",
+      "expected": "focus_window",
+      "got": "focus_window",
+      "via": "app_router",
+      "ms": 0.0,
+      "ok": true
+    },
+    {
+      "phrase": "pon spotify en pantalla",
+      "expected": "focus_window",
+      "got": "focus_window",
+      "via": "app_router",
+      "ms": 0.0,
+      "ok": true
+    },
+    {
+      "phrase": "sube el volumen al 70",
+      "expected": "set_volume",
+      "got": "set_volume",
+      "via": "llm",
+      "ms": 7070.1,
+      "ok": true
+    },
+    {
+      "phrase": "baja el volumen 10",
+      "expected": "set_volume",
+      "got": "set_volume",
+      "via": "llm",
+      "ms": 2558.5,
+      "ok": true
+    },
+    {
+      "phrase": "busca gatos en google",
+      "expected": "web_search",
+      "got": "web_search",
+      "via": "llm",
+      "ms": 1169.2,
+      "ok": true
+    },
+    {
+      "phrase": "busca el archivo config.py",
+      "expected": "search_file",
+      "got": "search_file",
+      "via": "llm",
+      "ms": 2100.9,
+      "ok": true
+    },
+    {
+      "phrase": "busca config.py en Proyectos/Limits",
+      "expected": "search_file",
+      "got": "search_file",
+      "via": "llm",
+      "ms": 3185.8,
+      "ok": true
+    },
+    {
+      "phrase": "busca main.py en Proyectos/Limits y ábrelo",
+      "expected": "search_and_open",
+      "got": "search_and_open",
+      "via": "llm",
+      "ms": 2933.1,
+      "ok": true
+    },
+    {
+      "phrase": "muéstrame informe.pdf en el explorador",
+      "expected": "reveal_file",
+      "got": "reveal_file",
+      "via": "llm",
+      "ms": 2881.0,
+      "ok": true
+    },
+    {
+      "phrase": "muéstramelo",
+      "expected": "reveal_last",
+      "got": "reveal_last",
+      "via": "file_router",
+      "ms": 0.0,
+      "ok": true
+    },
+    {
+      "phrase": "ábrelo",
+      "expected": "open_last",
+      "got": "open_last",
+      "via": "file_router",
+      "ms": 0.0,
+      "ok": true
+    },
+    {
+      "phrase": "abre el segundo",
+      "expected": "open_last",
+      "got": "open_last",
+      "via": "file_router",
+      "ms": 0.0,
+      "ok": true
+    },
+    {
+      "phrase": "abre el archivo ~/Proyectos/Limits/README.md",
+      "expected": "open_file",
+      "got": "open_file",
+      "via": "file_router",
+      "ms": 0.1,
+      "ok": true
+    },
+    {
+      "phrase": "copia ~/a.txt a ~/Desktop/a.txt",
+      "expected": "copy_file",
+      "got": "copy_file",
+      "via": "llm",
+      "ms": 2865.7,
+      "ok": true
+    },
+    {
+      "phrase": "mueve ~/Downloads/foto.png al escritorio",
+      "expected": "move_file",
+      "got": "move_file",
+      "via": "llm",
+      "ms": 2992.9,
+      "ok": true
+    },
+    {
+      "phrase": "renombra notas.txt a bitacora.txt",
+      "expected": "rename_file",
+      "got": "rename_file",
+      "via": "llm",
+      "ms": 8256.4,
+      "ok": true
+    },
+    {
+      "phrase": "lista la carpeta Descargas",
+      "expected": "list_directory",
+      "got": "list_directory",
+      "via": "file_router",
+      "ms": 0.2,
+      "ok": true
+    },
+    {
+      "phrase": "busca el PDF de impuestos en Descargas y cópialo al escritorio",
+      "expected": "desktop_task",
+      "got": "desktop_task",
+      "via": "keyword",
+      "ms": 0.0,
+      "ok": true
+    },
+    {
+      "phrase": "abre el proyecto Limits en code",
+      "expected": "open_project",
+      "got": "open_project",
+      "via": "llm",
+      "ms": 2142.0,
+      "ok": true
+    },
+    {
+      "phrase": "apaga el sistema",
+      "expected": "shutdown",
+      "got": "shutdown",
+      "via": "llm",
+      "ms": 1921.3,
+      "ok": true
+    },
+    {
+      "phrase": "sí, hazlo",
+      "expected": "confirm",
+      "got": "confirm",
+      "via": "llm",
+      "ms": 2284.2,
+      "ok": true
+    },
+    {
+      "phrase": "no, cancélalo",
+      "expected": "cancel",
+      "got": "cancel",
+      "via": "llm",
+      "ms": 2165.6,
+      "ok": true
+    },
+    {
+      "phrase": "qué canción suena",
+      "expected": "get_current_song",
+      "got": "get_current_song",
+      "via": "llm",
+      "ms": 1566.8,
+      "ok": true
+    },
+    {
+      "phrase": "¿cuánta RAM estoy usando?",
+      "expected": "get_system_info",
+      "got": "get_system_info",
+      "via": "llm",
+      "ms": 2498.6,
+      "ok": true
+    },
+    {
+      "phrase": "pon a Michael Jackson en Spotify",
+      "expected": "spotify_play",
+      "got": "spotify_play",
+      "via": "media_router",
+      "ms": 0.0,
+      "ok": true
+    },
+    {
+      "phrase": "pausa la música",
+      "expected": "media_control",
+      "got": "media_control",
+      "via": "media_router",
+      "ms": 0.0,
+      "ok": true
+    },
+    {
+      "phrase": "reanuda la reproducción de spotify",
+      "expected": "media_control",
+      "got": "media_control",
+      "via": "llm",
+      "ms": 1704.1,
+      "ok": true
+    },
+    {
+      "phrase": "siguiente canción",
+      "expected": "media_control",
+      "got": "media_control",
+      "via": "media_router",
+      "ms": 0.0,
+      "ok": true
+    }
+  ]
+}

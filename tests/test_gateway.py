@@ -9,7 +9,9 @@ import json
 import socket
 import tempfile
 import time
+import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from websockets.exceptions import ConnectionClosed
@@ -69,8 +71,11 @@ class Harness:
                           additional_headers=headers)
 
 
-def ok_pipeline(text, wait_timeout=None, speak=True):
-    return f"ok:{text}"
+def ok_pipeline(text, wait_timeout=None, speak=True, on_response=None):
+    respuesta = f"ok:{text}"
+    if on_response is not None:
+        on_response(respuesta)
+    return respuesta
 
 
 def busy_pipeline(text, wait_timeout=None, speak=True):
@@ -268,9 +273,9 @@ class TestGatewaySpeaking(unittest.TestCase):
     def test_respuesta_antes_de_speaking_y_pipeline_sin_voz(self):
         llamadas, dicho = [], []
 
-        def pipe(text, wait_timeout=None, speak=True):
+        def pipe(text, wait_timeout=None, speak=True, on_response=None):
             llamadas.append(speak)
-            return f"ok:{text}"
+            return ok_pipeline(text, wait_timeout, speak, on_response)
 
         h = Harness(pipe, speak_remote=True, speak_fn=dicho.append).__enter__()
         try:
@@ -405,6 +410,145 @@ class TestMakePipeline(unittest.TestCase):
                 pipe("hola", wait_timeout=0.05)
         finally:
             gate.release()
+
+    def test_callback_fallido_libera_el_turno(self):
+        pipe, _, gate = self._pipeline()
+        with self.assertRaisesRegex(RuntimeError, "desconectado"):
+            pipe("hola", speak=False,
+                 on_response=mock.Mock(side_effect=RuntimeError("desconectado")))
+        self.assertTrue(gate.acquire(0))
+        gate.release()
+
+    def test_gemini_cancela_pendiente_incluso_si_falla(self):
+        from modules.executor import CommandExecutor
+
+        for frase in ("gemini hola", "investiga las estrellas"):
+            for falla in (False, True):
+                with self.subTest(frase=frase, falla=falla):
+                    ejecutor = CommandExecutor()
+                    apagado = mock.Mock(return_value="apagado simulado")
+                    ejecutor.action_map["shutdown"] = apagado
+                    ejecutor.execute({"action": "shutdown", "params": {}})
+                    gemini = mock.Mock()
+                    gemini.chat.return_value = "respuesta simulada"
+                    if falla:
+                        gemini.chat.side_effect = RuntimeError("sin conexión")
+                    pipeline = make_pipeline(FakeLLM(), ejecutor, FakeTTS(),
+                                             TurnGate(), gemini=gemini)
+                    if falla:
+                        with self.assertRaises(RuntimeError):
+                            pipeline(frase, speak=False)
+                    else:
+                        pipeline(frase, speak=False)
+                    self.assertIsNone(ejecutor._pending_action)
+                    ejecutor.execute({"intent": "confirm", "action": "confirm",
+                                      "confidence": 1.0, "grounded": True})
+                    apagado.assert_not_called()
+
+    def test_rechazo_grounding_cancela_pendiente(self):
+        from modules.executor import CommandExecutor
+
+        ejecutor = CommandExecutor()
+        apagado = mock.Mock()
+        ejecutor.action_map["shutdown"] = apagado
+        ejecutor.execute({"action": "shutdown", "params": {}})
+        ejecutor.execute({"action": "get_time", "grounded": False})
+        ejecutor.execute({"intent": "confirm", "action": "confirm"})
+        self.assertIsNone(ejecutor._pending_action)
+        apagado.assert_not_called()
+
+    def test_confirmacion_inmediata_conserva_funcionamiento(self):
+        from modules.executor import CommandExecutor
+
+        ejecutor = CommandExecutor()
+        apagado = mock.Mock(return_value="apagado simulado")
+        ejecutor.action_map["shutdown"] = apagado
+        ejecutor.execute({"action": "shutdown", "params": {}})
+        ejecutor.execute({"intent": "confirm", "action": "confirm"})
+        apagado.assert_called_once_with()
+
+
+class TestVozRemotaSerializada(unittest.TestCase):
+    def test_memoria_local_y_movil_persisten_en_la_misma_base(self):
+        from modules.executor import CommandExecutor
+
+        with tempfile.TemporaryDirectory() as temporal:
+            ruta = Path(temporal) / "memoria.db"
+            memoria = MemoryStore(ruta)
+            try:
+                with mock.patch("modules.memory.get_store", return_value=memoria):
+                    pipeline = make_pipeline(FakeLLM(), CommandExecutor(),
+                                             FakeTTS(), TurnGate())
+                    pipeline("recuerda que mi proyecto es Limits", speak=False)
+                    with Harness(pipeline, token_path=str(Path(temporal) / "token"),
+                                 speak_remote=False) as servidor:
+                        with servidor.client(servidor.srv.token) as movil:
+                            _recv(movil)
+                            movil.send(json.dumps({"v": 1, "type": "command",
+                                                   "text": "recuerda que mi color es azul"}))
+                            self.assertEqual(_recv(movil)["kind"], "processing")
+                            respuesta = _recv(movil)
+                            self.assertIn("Anotado", respuesta["text"])
+                    self.assertEqual(memoria.recall("color")[0]["value"], "azul")
+                    self.assertEqual(memoria.stats()["episodes"], 4)
+            finally:
+                memoria.close()
+            reabierta = MemoryStore(ruta)
+            try:
+                self.assertEqual(reabierta.stats()["facts"], 2)
+                self.assertEqual(reabierta.stats()["episodes"], 4)
+            finally:
+                reabierta.close()
+
+    def test_dos_clientes_y_voz_local_comparten_bloqueo_hasta_stop(self):
+        bloqueo = TurnGate()
+        hablando = threading.Event()
+        terminar = threading.Event()
+        procesados = []
+
+        class Modelo(FakeLLM):
+            def process(self, texto):
+                procesados.append(texto)
+                return super().process(texto)
+
+        def hablar(texto):
+            if texto == "resp:hola":
+                hablando.set()
+                if not terminar.wait(5):
+                    raise RuntimeError("la prueba no interrumpió la voz")
+
+        pipeline = make_pipeline(Modelo(), FakeExecutor(), FakeTTS(), bloqueo)
+        with tempfile.TemporaryDirectory() as temporal:
+            with Harness(pipeline, token_path=str(Path(temporal) / "token"),
+                         speak_fn=hablar, stop_fn=terminar.set) as servidor:
+                with servidor.client(servidor.srv.token) as primero, \
+                        servidor.client(servidor.srv.token) as segundo:
+                    _recv(primero)
+                    _recv(segundo)
+                    try:
+                        primero.send(json.dumps({"v": 1, "type": "command", "text": "hola"}))
+                        self.assertEqual(_recv(primero)["kind"], "processing")
+                        self.assertEqual(_recv(primero)["text"], "resp:hola")
+                        self.assertEqual(_recv(primero)["kind"], "speaking_started")
+                        self.assertTrue(hablando.wait(2))
+                        with self.assertRaises(RemoteBusy):
+                            pipeline("voz local", wait_timeout=0.02)
+                        segundo.send(json.dumps({"v": 1, "type": "command", "text": "saludos"}))
+                        self.assertEqual(_recv(segundo)["kind"], "processing")
+                        self.assertEqual(procesados, ["hola"])
+
+                        # Stop se recibe mientras el trabajador conserva el turno.
+                        primero.send(json.dumps({"v": 1, "type": "stop"}))
+                        eventos = {_recv(primero)["kind"], _recv(primero)["kind"]}
+                        self.assertEqual(eventos, {"stopped", "speaking_finished"})
+                        self.assertEqual(_recv(segundo)["text"], "resp:saludos")
+                        self.assertEqual(_recv(segundo)["kind"], "speaking_started")
+                        self.assertEqual(_recv(segundo)["kind"], "speaking_finished")
+                        self.assertEqual(procesados, ["hola", "saludos"])
+                    finally:
+                        terminar.set()
+                self.assertTrue(bloqueo.acquire(2))
+                bloqueo.release()
 
 
 if __name__ == "__main__":

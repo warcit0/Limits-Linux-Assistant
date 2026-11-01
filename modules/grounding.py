@@ -27,6 +27,10 @@ CHAT_ACTIONS = frozenset({"", "none", "null", "unknown", "speak_error", "chat"})
 # Solo se listan las acciones donde una elección equivocada es plausible o
 # dañina; el resto no se restringe para no bloquear órdenes legítimas.
 ACTION_HINTS: dict[str, tuple[str, ...]] = {
+    "workspace_switch": (r"work\s*space|world space|word space|escritorio|espacio de trabajo|\b(?:ve|vete|llevame|mueveme|pasate)\b",),
+    "workspace_move": (r"ventana",),
+    "workspace_back": (r"vuelve|regresa|anterior",),
+    "workspace_list": (r"workspace|espacios de trabajo",),
     "get_system_info": (
         r"ram", r"memoria", r"procesador", r"cpu", r"\bgpu\b", r"grafica",
         r"disco", r"espacio", r"almacenamiento", r"hardware", r"temperatura",
@@ -145,7 +149,7 @@ class Verdict:
     params: dict = field(default_factory=dict)
 
 
-def check(action, params, text: str, known_actions=None) -> Verdict:
+def check(action, params, text: str, known_actions=None, *, semantic_evidence=False) -> Verdict:
     """Decide si `action` responde a `text`.
 
     Args:
@@ -166,6 +170,10 @@ def check(action, params, text: str, known_actions=None) -> Verdict:
 
     if known_actions is not None and action not in known_actions:
         return Verdict(False, "accion_desconocida", action, params)
+
+    if action in {"workspace_switch", "workspace_move"} and "target" in params:
+        from commands.workspaces import normalizar_destino
+        params["target"] = normalizar_destino(params["target"])
 
     # ── Enums (con reparación por alias) ────────────────────────────────────
     for key, allowed in PARAM_ENUMS.get(action, {}).items():
@@ -191,7 +199,7 @@ def check(action, params, text: str, known_actions=None) -> Verdict:
             return Verdict(False, "fuera_de_dominio", action, params)
 
     hints = ACTION_HINTS.get(action)
-    if hints and not any(re.search(h, folded) for h in hints):
+    if not semantic_evidence and hints and not any(re.search(h, folded) for h in hints):
         return Verdict(False, "sin_evidencia", action, params)
 
     return Verdict(True, "ok", action, params)

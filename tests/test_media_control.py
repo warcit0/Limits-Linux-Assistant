@@ -26,6 +26,10 @@ def playerctl_fake(players, statuses=None, action_rc=0, action_err=""):
     statuses = statuses or {}
 
     def run(cmd, **kwargs):
+        if cmd[0] == 'gdbus':
+            return FakeProc(stdout='(<true>,)')
+        if 'metadata' in cmd:
+            return FakeProc(stdout='pista-inicial')
         if cmd[:2] == ["playerctl", "-l"]:
             return FakeProc(stdout="\n".join(players) + "\n")
         if "status" in cmd:
@@ -84,16 +88,19 @@ class TestMediaControl(unittest.TestCase):
                 patch("commands.system.console"):
             out = self.sys.media_control("play", "spotify")
 
-        self.assertEqual(out, "")
+        self.assertTrue(out.ok)
+        self.assertFalse(out.verificado)
         self.assertIn(["playerctl", "--player", "spotify", "play"], calls)
         self.assertNotIn(["playerctl", "play"], calls)
 
     def test_spotify_cerrado_no_dice_que_reanudo(self):
         run = playerctl_fake(["firefox.instance_1_59"])
         with patch.object(media_mod.subprocess, "run", side_effect=run), \
-                patch("commands.system.subprocess.run", side_effect=run):
+                patch("commands.system.subprocess.run", side_effect=run), \
+                patch("commands.system.time.monotonic",side_effect=[0,5]):
             out = self.sys.media_control("play", "spotify")
-        self.assertIn("No encuentro spotify", out)
+        self.assertFalse(out.ok)
+        self.assertIn("No envié la orden", out)
 
     def test_error_de_playerctl_se_reporta(self):
         run = playerctl_fake(["spotify"], action_rc=1,
@@ -102,10 +109,10 @@ class TestMediaControl(unittest.TestCase):
                 patch("commands.system.subprocess.run", side_effect=run), \
                 patch("commands.system.console"):
             out = self.sys.media_control("play", "spotify")
-        self.assertIn("No pude play", out)
-        self.assertIn("No player could handle", out)
+        self.assertFalse(out.ok)
+        self.assertIn("no pudo aceptar", out)
 
-    def test_accion_invalida_cae_en_play_pause(self):
+    def test_accion_invalida_no_envia_efecto(self):
         calls = []
         run = playerctl_fake(["spotify"])
 
@@ -118,7 +125,21 @@ class TestMediaControl(unittest.TestCase):
                 patch("commands.system.console"):
             self.sys.media_control("borrar_todo", None)
 
-        self.assertIn(["playerctl", "--player", "spotify", "play-pause"], calls)
+        self.assertFalse(calls)
+
+    def test_siguiente_verifica_cambio_sin_repetir_efecto(self):
+        efectos = []
+        def run(cmd,**kwargs):
+            if cmd[0] == 'gdbus': return FakeProc(stdout='(<true>,)')
+            if cmd == ['playerctl','-l']: return FakeProc(stdout='spotify')
+            if cmd[-1] == 'status': return FakeProc(stdout='Playing')
+            if 'metadata' in cmd: return FakeProc(stdout='pista-2' if efectos else 'pista-1')
+            efectos.append(cmd)
+            return FakeProc()
+        with patch('commands.system.subprocess.run',side_effect=run):
+            out = self.sys.media_control('next','spotify',verify=True)
+        self.assertTrue(out.verificado)
+        self.assertEqual(efectos,[['playerctl','--player','spotify','next']])
 
 
 if __name__ == "__main__":

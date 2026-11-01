@@ -1,0 +1,23 @@
+{
+  "oculto": {
+    "cpu_porcentaje_de_un_nucleo": 0.0,
+    "memoria_kib": {
+      "Rss": 203300,
+      "Pss": 164831,
+      "Private_Clean": 70084,
+      "Private_Dirty": 83228
+    },
+    "muestra_segundos": 2.0
+  },
+  "animando": {
+    "cpu_porcentaje_de_un_nucleo": 1.5,
+    "memoria_kib": {
+      "Rss": 227312,
+      "Pss": 149059,
+      "Private_Clean": 3672,
+      "Private_Dirty": 102404
+    },
+    "muestra_segundos": 2.0
+  },
+  "gpu": "Sin contador de ocupación disponible; no se atribuye consumo GPU a partir de CPU."
+}

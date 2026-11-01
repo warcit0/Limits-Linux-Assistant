@@ -41,6 +41,24 @@ def match_quick_route(text: str) -> dict | None:
     if not text or not text.strip():
         return None
     plain = _plain(text).strip(" .!?¡¿,;:")
+    from modules.workspace_router import normalizar_orden
+    plain = normalizar_orden(plain)
+    if re.search(r"[;]|\b(y|luego|despues|pero|no|nunca)\b",plain):
+        return None
+    nivel = re.fullmatch(r"(?:(?:pon|ajusta|deja|establece|cambia) (?:el )?)?(volumen|brillo)\s+(?:a|al|en)\s+(\d{1,3})(?:\s*%| por ciento)?",plain)
+    if nivel and 0 <= int(nivel[2]) <= 100:
+        return {"intent":"system","action":"set_volume" if nivel[1] == "volumen" else "set_brightness",
+                "params":{"level":int(nivel[2])},"response":"","confidence":1.0}
+    relativo = re.fullmatch(r"(sube|baja|aumenta|reduce) (?:el )?volumen(?: en)? (\d{1,3})(?:\s*%| por ciento)?",plain)
+    if relativo and 0 < int(relativo[2]) <= 100:
+        signo = -1 if relativo[1] in {"baja","reduce"} else 1
+        return {"intent":"system","action":"set_volume","params":{"level":signo*int(relativo[2]),"mode":"relative"},"response":"","confidence":1.0}
+    if re.fullmatch(r"(?:dime |cual es |a cuanto esta )?(?:el )?volumen(?: actual)?",plain):
+        return {"intent":"system","action":"get_volume","params":{},"response":"","confidence":1.0}
+
+    # El reloj solo consume preguntas completas; nunca una subcadena de otra tarea.
+    if not re.fullmatch(r"(?:que hora (?:es|son|tienes|tenemos)(?: ahora| hoy)?|(?:dime|dame) la hora|la hora|(?:que|en que) (?:dia|fecha)(?: de la semana)?(?: es| estamos| es hoy| estamos hoy)?|a que dia estamos|fecha de hoy|(?:dime|dame) (?:la fecha|el dia de la semana))",plain):
+        return None
 
     detail = None
     if _WEEKDAY.search(plain):

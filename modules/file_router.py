@@ -119,7 +119,7 @@ def match_file_route(text: str) -> dict | None:
             "response": "Mostrándolo.",
             "confidence": 1.0,
         }
-    if _FOLLOW_OPEN.search(normalized) and not _SEARCH.search(normalized):
+    if _FOLLOW_OPEN.fullmatch(normalized.strip(" .!?¡¿")):
         return {
             "intent": "file_open_last",
             "action": "open_last",

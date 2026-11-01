@@ -1110,7 +1110,7 @@ OLLAMA_MODEL=qwen2.5:7b
 # ─── LLM CLOUD (FALLBACK GRATUITO) ──────────────────────────────────────────
 # Groq API — oficial, gratuita, extremadamente rápida
 # Obtén tu key en: https://console.groq.com (gratis, sin tarjeta)
-GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxx
+GROQ_API_KEY=[CREDENCIAL RETIRADA; CONFIGURAR EN .env]
 
 # ─── SPEECH TO TEXT ─────────────────────────────────────────────────────────
 # Modelo Whisper: tiny, base, small (recomendado), medium

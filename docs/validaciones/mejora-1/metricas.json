@@ -1,0 +1,193 @@
+{
+  "referencia_router": {
+    "accuracy": 1.0,
+    "ok": 32,
+    "total": 32,
+    "min_accuracy": 1.0,
+    "passed_threshold": true,
+    "p50_ms": 1671.0,
+    "p95_ms": 3045.3,
+    "ollama_model": "qwen2.5:1.5b-instruct"
+  },
+  "router_actual": {
+    "accuracy": 1.0,
+    "ok": 32,
+    "total": 32,
+    "min_accuracy": 1.0,
+    "passed_threshold": true,
+    "p50_ms": 1705.3,
+    "p95_ms": 3043.1,
+    "ollama_model": "qwen2.5:1.5b-instruct"
+  },
+  "suite_referencia": {
+    "pruebas": 272,
+    "aprobadas": 272
+  },
+  "suite_actual": {
+    "pruebas": 405,
+    "aprobadas": 405,
+    "segundos": 6.491
+  },
+  "fecha": "2026-10-31",
+  "compilacion": "Compilación Python completa correcta",
+  "dependencias": "pip check correcto; langgraph==1.2.19 sobre Python 3.14",
+  "suite_gemdev": {
+    "aprobadas": 273,
+    "segundos": 27.56
+  },
+  "selector_actual": {
+    "aciertos": 40,
+    "total": 40,
+    "p50_ms": 682.0
+  },
+  "aceptacion_completa": {
+    "ok": true,
+    "filas": [
+      {
+        "paso": 1,
+        "estado": "terminada",
+        "rol": "analisis",
+        "consultas": [
+          {
+            "rol": "cotidiano",
+            "segundos": 2.47,
+            "modelo": "qwen2.5:1.5b-instruct"
+          },
+          {
+            "rol": "analisis",
+            "segundos": 2.26,
+            "modelo": "nvidia/nemotron-3.5-super-vl-120b-a12b"
+          },
+          {
+            "rol": "analisis",
+            "segundos": 1.47,
+            "modelo": "nvidia/nemotron-3.5-super-vl-120b-a12b"
+          },
+          {
+            "rol": "analisis",
+            "segundos": 2.73,
+            "modelo": "nvidia/nemotron-3.5-super-vl-120b-a12b"
+          },
+          {
+            "rol": "analisis",
+            "segundos": 5.63,
+            "modelo": "nvidia/nemotron-3.5-super-vl-120b-a12b"
+          }
+        ],
+        "segundos": 14.57,
+        "checks": {
+          "tarea_valida": true,
+          "originales_intactos": true
+        },
+        "respuesta": "Revisión completada sin modificar nada. La carpeta <temporal>/datos contiene dos archivos:\n- 2026-10-10_nota.txt (contenido: \"nota de prueba\")\n- 2026-10-12_ventas.csv (contenido: \"total\\n45\")\n\nOpción 1 — organización por fecha (usando la fecha del nombre de archivo):\n- 2026/10/10/2026-10-10_nota.txt\n- 2026/10/12/2026-10-12_ventas.csv\n\nOpción 2 — organización por extensión:\n- txt/2026-10-10_nota.txt\n- csv/2026-10-12_ventas.csv\n\nAmbas son solo recomendaciones; no se creó, movió ni renombró ningún archivo.",
+        "ok": true
+      },
+      {
+        "paso": 2,
+        "estado": "terminada",
+        "rol": "analisis",
+        "consultas": [
+          {
+            "rol": "cotidiano",
+            "segundos": 2.88,
+            "modelo": "qwen2.5:1.5b-instruct"
+          },
+          {
+            "rol": "analisis",
+            "segundos": 3.07,
+            "modelo": "nvidia/nemotron-3.5-super-vl-120b-a12b"
+          }
+        ],
+        "segundos": 5.95,
+        "checks": {
+          "tarea_valida": true,
+          "originales_intactos": true,
+          "segunda_opcion_correcta": true,
+          "continua_analisis": true
+        },
+        "respuesta": "Segunda opción — organización por extensión:\nLos archivos se agrupan en carpetas nombradas por su extensión (sin el punto), manteniendo su nombre original dentro de cada carpeta:\n- txt/2026-10-10_nota.txt\n- csv/2026-10-12_ventas.csv\n\nDiferencia con la primera opción (por fecha):\n- La primera usa la fecha incrustada en el nombre del archivo (2026-10-10, 2026-10-12) para crear una jerarquía año/mes/día, agrupando por cuándo se generó cada archivo.\n- La segunda agrupa por tipo o formato de archivo, ignorando la fecha. Así, dos archivos de distinta fecha pero misma extensión irían a la misma carpeta, mientras que en la opción por fecha irían a carpetas distintas.\n\nAmbas son solo recomendaciones; no se creó, movió ni renombró ningún archivo.",
+        "ok": true
+      },
+      {
+        "paso": 3,
+        "estado": "aprobacion",
+        "rol": "desarrollo",
+        "consultas": [
+          {
+            "rol": "cotidiano",
+            "segundos": 3.55,
+            "modelo": "qwen2.5:1.5b-instruct"
+          },
+          {
+            "rol": "desarrollo",
+            "segundos": 22.94,
+            "modelo": "openai/gpt-oss-120b"
+          },
+          {
+            "rol": "desarrollo",
+            "segundos": 2.09,
+            "modelo": "openai/gpt-oss-120b"
+          }
+        ],
+        "segundos": 28.67,
+        "checks": {
+          "tarea_valida": true,
+          "originales_intactos": true,
+          "script_generado_y_probado": true,
+          "aprobacion_vigente": true
+        },
+        "respuesta": "Script generado y probado sobre una copia. Los originales siguen intactos. Aplicar el script probado organizar_por_extension2.py a <temporal>/datos. La prueba cambió 6 entradas: 2026-10-10_nota.txt, 2026-10-12_ventas.csv, csv/, csv/2026-10-12_ventas.csv, txt/, txt/2026-10-10_nota.txt. Puedes revisar el script en <temporal>/tareas/trabajos/400b75fe6a2149709d25a50d7f593967/organizar_por_extension2.py. Di «confirmar» para aplicar este plan o «cancelar». ",
+        "ok": true
+      },
+      {
+        "paso": 4,
+        "estado": "terminada",
+        "rol": "desarrollo",
+        "consultas": [],
+        "segundos": 0.03,
+        "checks": {
+          "tarea_valida": true,
+          "efecto_verificado": true
+        },
+        "respuesta": "Script aplicado a <temporal>/datos. Se verificaron 6 entradas modificadas: 2026-10-10_nota.txt, 2026-10-12_ventas.csv, csv/, csv/2026-10-12_ventas.csv, txt/, txt/2026-10-10_nota.txt. ",
+        "ok": true
+      }
+    ]
+  },
+  "microfono_real": {
+    "ok": true,
+    "microfono_real": true,
+    "cancelacion_durante_espera": true,
+    "segundos": 13.28,
+    "audio_guardado": false
+  },
+  "gemini": {
+    "ok": true,
+    "segundos": 86.26,
+    "fuentes_comprobadas": 2
+  },
+  "activacion": {
+    "AGENT_ENABLED": true,
+    "reversion": "AGENT_ENABLED=false y reiniciar limits.service"
+  },
+  "salud_servicio": {
+    "anterior": {
+      "ok": true,
+      "comprobaciones": [
+        "Servicio",
+        "Gateway",
+        "Auth",
+        "Micrófono"
+      ]
+    },
+    "objetivos": {
+      "ok": true,
+      "comprobaciones": [
+        "Servicio",
+        "Gateway",
+        "Auth",
+        "Micrófono"
+      ]
+    }
+  }
+}

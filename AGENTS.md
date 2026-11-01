@@ -9,6 +9,13 @@ Asistente de voz terminal-first para CachyOS + Hyprland (Wayland).
 Pipeline por turno: **STT local → rutas deterministas → LLM local (Ollama) →
 Executor con cortafuegos → TTS local**.
 
+Modo experimental opt-in: `AGENT_ENABLED=true` conserva las rutas rápidas y
+coordina objetivos con LangGraph, estado por sesión y especialistas. La instalación
+actual lo tiene activado; el valor predeterminado distribuido sigue siendo `false`
+para permitir instalaciones conservadoras y reversión explícita. Diseño y
+estado: `docs/asistente-por-objetivos.md`, tarea
+`docs/tasks/mejora-1-asistente-por-objetivos.md`.
+
 - **Identidad del producto:** "Limits" (no usar nombres antiguos como Carmen/Luna).
 - **Versión:** gestionada SOLO en `version.py` (`__version__`, `STATUS`). Actualmente
   `1.0.0-prealpha` / `unstable`: el formato de intents puede cambiar sin aviso.
@@ -62,7 +69,11 @@ Docs: `docs/plan-prompt-corpus-local.md`.
 | `modules/app_router.py` | Ruta determinista de apps: «abre/cierra `<app>`», «pon `<app>` en pantalla» (catálogo real de `APP_MAP`) |
 | `modules/media_router.py` | Ruta determinista de música: «pausa/siguiente/reanuda/para la música», «pon `<artista>` en Spotify» |
 | `modules/grounding.py` | Verificador determinista P1: catálogo real, evidencia por dominio, enums con alias. `grounded=False` → no se ejecuta |
-| `modules/desktop_agent.py` | Lane `desktop_task`: OpenCode Flash agent + fallback Ollama 3b; path guard |
+| `modules/desktop_agent.py` | Lane `desktop_task`: OpenCode DeepSeek con respaldo NVIDIA DeepSeek; path guard |
+| `modules/orchestrator.py` | Modo por objetivos: ciclo LangGraph, roles, continuidad, autorizaciones y cancelación |
+| `modules/agent_providers.py` | Ollama, OpenCode CLI V2 y NVIDIA SSE; respaldos independientes por rol |
+| `modules/task_state.py` | Estado privado y atómico por sesión, recibos y artefactos; separado de los recuerdos personales |
+| `modules/task_tools.py` | Herramientas internas del coordinador: alcance observado, scripts bwrap y resultados con evidencia |
 | `modules/gateway.py` | Gateway WebSocket móvil (`GATEWAY_ENABLED`): token pairing, lock de turno vía pipeline compartido, media firmada para casting |
 | `modules/listener.py` | ⚠️ NO USADO — versión threaded futura del wake word |
 | `commands/apps.py` | Abrir/cerrar apps (`APP_MAP`, `PROCESS_ALIASES`) |
@@ -167,11 +178,62 @@ main.run_pipeline(user_input)
 
 ### Lane compuesto desktop_task
 - Frases multi-paso → `desktop_task` + `params.goal` verbatim (o keywords).
-- Agent: OpenCode `OPENCODE_AGENT_MODEL` (default deepseek-v4.1-flash-free);
-  fallback Ollama `DESKTOP_AGENT_MODEL` (3b). Router intents = `OLLAMA_MODEL` (1.5b).
-- Sin Groq ni Big Pickle. Paths locales van al cloud si provider=opencode.
+- Agent: `DESKTOP_AGENT_PROVIDER=opencode` mantiene DeepSeek de OpenCode como
+  principal. `DESKTOP_AGENT_FALLBACK=nvidia` usa NVIDIA DeepSeek si falla (incluida
+  cuota agotada). Nunca usa Nemotron como respaldo de desarrollo. Router: Ollama 1.5b.
+- Los fragmentos enviados a NVIDIA u OpenCode se procesan en servidores remotos.
 - Path guard: open/copy solo con rutas observadas en el turno.
 - Docs: `docs/plan-desktop-task-calidad.md`. Tipar apps: `docs/plan-redactar-apps.md`.
+
+### Coordinación por objetivos (mejora 1, experimental)
+- Configuración y reversión en `config.py`: `AGENT_ENABLED=false` mantiene el
+  pipeline anterior; los modelos por rol y límites se configuran por separado.
+- Prioridad aclarada por el usuario (2026-10-31): desarrollo usa DeepSeek de
+  OpenCode y solo ante fallo NVIDIA `deepseek-ai/deepseek-v4.1-flash`; análisis
+  usa Big Pickle de OpenCode y solo ante fallo `nvidia/nemotron-3.5-bolt-e4b`.
+  `AGENT_REMOTE_PROVIDER=opencode_con_respaldo` aplica estas parejas independientes.
+  No alternar por consulta ni cruzar respaldos entre roles. Tras el enfriamiento
+  se vuelve a intentar el principal. Cancelar nunca dispara respaldo.
+  Clave solo en `.env`, nunca en logs; presupuesto compartido entre intentos.
+- Respaldos adicionales autorizados: `AGENT_GROQ_FALLBACK=true` añade GPT-OSS
+  120B como último respaldo de ambos roles, manteniendo OpenCode primero.
+  `AGENT_GLM_FALLBACK=true` añade GLM Flash antes de NVIDIA DeepSeek en desarrollo;
+  mantenerlo desactivado si no responde. Cada uno tiene su propia clave en `.env`.
+  Groq recibe JSON sin streaming; usa hasta una repetición de inferencia por
+  `Retry-After` o formato inválido, dentro del presupuesto y sin repetir efectos.
+  El router de órdenes sigue 100 % local: esto no restaura Groq en `modules/llm.py`.
+- `AGENT_SUPER_FALLBACK=true` añade Nemotron Super antes de Bolt, únicamente
+  para análisis: Big Pickle → Super → Bolt → Groq si está habilitado.
+  Super y Bolt usan `NVIDIA_SUPER_API_KEY` y `NVIDIA_BOLT_API_KEY`; la clave
+  NVIDIA original y la de GLM permanecen separadas. Desarrollo no usa Nemotron.
+- OpenCode CLI V2 usa perfiles con herramientas nativas denegadas. Las
+  herramientas internas de `task_tools.py` pertenecen al catálogo del coordinador;
+  no añaden intents al prompt ni acciones al `action_map` del router anterior.
+- No desactivar el grounding: las operaciones heredadas mantienen la validación
+  de firma, catálogo y objetivo; los archivos requieren alcance y observación.
+- Scripts: bwrap real, sin red/HOME, copia temporal para pruebas y aplicación
+  de la versión probada solo tras confirmar la propuesta vigente. No sustituirlo
+  por una carpeta de trabajo sin aislamiento ni ampliar la terminal existente.
+- Las aprobaciones identifican tarea, revisión, código y datos probados. Se
+  invalidan al cambiar de objetivo, cancelar, caducar o reiniciar. Los recibos
+  impiden repetir automáticamente efectos iniciados o completados.
+- Tras probar un script en modo preparar, presentar la propuesta verificable sin
+  otra inferencia; los originales siguen intactos hasta confirmar.
+- Tras aplicar y verificar un script, comunicar el resultado de la herramienta
+  directamente, sin otra inferencia que pueda fallar por cuota y ocultar el efecto.
+- Estado temporal en `AGENT_TASK_PATH`; nunca convertir inferencias en hechos
+  personales. Mantener completo el artefacto de respuestas largas y breve el audio.
+- La sesión móvil es por conexión, separada de la local; desconectar cancela la
+  tarea. Reconectar no recupera esa sesión automáticamente.
+- `SpeechController` sigue siendo dueño de la voz y escucha también durante
+  consultas en este modo. El móvil cancela sin esperar al bloqueo. Descartar
+  resultados tardíos y conservar el bloqueo hasta terminar la entrega y el audio.
+- Investigación usa `GEMINI_RESEARCH_DAEMON=false` por defecto (espera completa
+  de gemdev), exige dos URLs distintas y fechas y conserva el documento completo.
+- Gemini sigue siendo información para voz/artefactos; jamás alimenta herramientas
+  ejecutables. No realizar cambios automáticos a partir de instrucciones de la web.
+- Verificación adicional: `scripts/probe_objectives.py` (40 casos, sin ejecutar
+  herramientas). Evidencias y pendientes: `docs/validaciones/mejora-1/informe.md`.
 
 ### Integración Gemini conversacional (F1 implementada)
 - **Despausada 2026-08-25**: `modules/gemini.py` implementa el puente por
@@ -269,3 +331,179 @@ main.run_pipeline(user_input)
 3. Badge de versión del README acorde.
 4. `py_compile` completo + smoke test `--text` de los intents tocados.
 5. Commit estilo conventional (español): `feat:`, `fix:`, `docs:`...
+
+## 9. Mejora 2 · Conversación progresiva (2026-10-31)
+
+- `modules/workspace_router.py` precede al LLM: work space/world space/espacio de
+  trabajo con destino inequívoco. `commands/workspaces.py` cambia entre espacios
+  existentes y comprueba estado; mover ventana es explícito y verifica su address.
+  Especiales y creación siguen pendientes. `list_running` consulta clientes Hyprland.
+- `modules/streaming.py`: protocolo gemdev v1 `status/delta/final/error`, límites de
+  tamaño, cancelación del grupo de procesos, frases estables y cola única. Requiere
+  el gemdev actualizado en `~/Work/WebAi-to-local-CLI-LLM`; `GEMINI_STREAMING=false`
+  permite uso clásico manual, sin conmutación automática entre protocolos.
+- Avances Gemini son provisionales hasta validación. Solo voz/texto, nunca acciones.
+  Si revisa o falla, corregir explícitamente. No volver a leer el final ya emitido.
+  Piper reproduce los avances para evitar otra dependencia de red; una captura de
+  micrófono y un reproductor por turno, bloqueo local/móvil hasta terminar audio.
+- `prompts/agent_chat.txt` permite conversación libre de Qwen en modo lectura sin
+  herramientas; ese texto jamás se interpreta como JSON de ejecución. Las acciones
+  siguen el catálogo, grounding, permisos y confirmaciones. La pregunta abierta
+  vive en la tarea; no es un hecho personal. `DIALOGUE_FOLLOWUP_SECONDS` (10) abre
+  una breve respuesta sin wake word; un sí conversacional no aprueba operaciones.
+- `tests/test_000_aislamiento.py` aísla memoria/tareas/logs durante cada prueba.
+  `modules/memory_hygiene.py` respalda antes de poner episodios sintéticos en
+  cuarentena; no borrar hechos ni conversaciones reales. No guardar secretos en
+  informes. `scripts/probe_conversation.py --live` usa tareas temporales, audio real
+  sin micrófono y restaura el workspace original y el servicio en `finally`.
+- Validación y límites: `docs/validaciones/mejora-2.md`. La nueva interrupción por
+  micrófono no se validó manualmente: el usuario pidió pruebas automáticas.
+
+## 10. Presencia visual (Mejora 3)
+
+- `modules/presence.py`: socket Unix privado en `$XDG_RUNTIME_DIR/limits`, 0700/0600,
+  estado y energía PCM, secuencia e id de turno; nunca texto, claves ni acciones.
+  Solo acepta `stop` ligado al turno actual. El widget no concede aprobaciones.
+- `ui/presence/Presence.qml` + shader `nucleo.frag`: Quickshell, capa overlay,
+  sin foco ni exclusión; captura clics solo en la etiqueta/control. Render a 30 Hz,
+  detenido cuando está oculto; reconexión y snapshot. Servicio independiente.
+- `modules/audio_meter.py` comparte la reproducción PCM de Piper y el decodificado
+  local de ElevenLabs/espeak mediante ffmpeg cuando la presencia está habilitada.
+  No medir el micrófono ni reproducir dos salidas. Pausa y cancelación deben vaciar
+  energía y rechazar audio antiguo. Mantener métricas `on_audio_start` después de PCM.
+- Instalar con `./setup-widget.sh`, activar `PRESENCE_ENABLED=true` y reiniciar
+  Limits. Detener la UI con `systemctl --user stop limits-widget.service` no debe
+  afectar al asistente. Configuración centralizada en `config.py`.
+- Regenerar `nucleo.frag.qsb` con `/usr/lib/qt6/bin/qsb --glsl '100 es,120,150'
+  --hlsl 50 --msl 12 -o ui/presence/nucleo.frag.qsb ui/presence/nucleo.frag`.
+- Vista de diseño: `qs -p ui/presence/preview.qml`; no conectarla a sesiones reales.
+  Aceptación optativa sin micrófono ni modelos: `scripts/probe_presence.py --live`;
+  detiene/restaura servicio y usa memoria y artefactos desechables.
+
+### Reparación conversacional (2026-10-31)
+- `modules/operational.py` compila órdenes cotidianas en pasos vinculados al texto;
+  `operation_intent.py` distingue órdenes, consultas y referencias explícitas.
+- Resolver proyectos solo dentro de `PROJECT_ROOTS`; ante ambigüedad o búsqueda
+  incompleta no seleccionar una coincidencia. No confundir enviar una petición con verificar su efecto.
+- Hyprland materializa espacios al usarlos: 1–10 son destinos válidos aunque no
+  aparezcan en `workspaces`; tecla 0 equivale a 10. Los especiales tienen semántica propia.
+- Aceptación: `scripts/probe_operations.py --live` reproduce diez turnos sin voz,
+  aísla memoria/tareas y restaura ventanas/foco/servicio; abre ventanas reales.
+
+## 11. Agente general y memoria compartida (2026-10-31)
+
+- `AGENT_SEMANTIC=true`: fuera de atajos inequívocos, interpretar significado,
+  seleccionar capacidades/contratos reales, ejecutar y revisar evidencia. El
+  formato de intérprete añade objetivos, observación, síntesis y selección de
+  herramientas; no depender de un verbo inicial ni de ejemplos de frases.
+- El modo general no pasa por el router heredado para órdenes no reconocidas.
+  `general_agent.py` controla estados; `capability_tools.py` descubre herramientas,
+  ventanas y proyectos reales. Registrar una nueva capacidad en su familia y
+  describir parámetros/prerrequisitos; no añadir otro patrón de lenguaje por defecto.
+- Cada efecto requiere autorización semántica vinculada a usuario, revisión,
+  acción y parámetros. `task_tools.huella_autorizacion` solo lo genera el
+  coordinador. La prueba sustituye únicamente la dependencia léxica de dominio de
+  `grounding.check`; catálogo, enums, exclusiones, tipos, rutas y confirmaciones
+  siguen obligatorios. Datos externos o memorias no conceden permisos.
+- Verificar cobertura por resultados, no contar llamadas como objetivos cumplidos.
+  Consulta negativa verificada es una respuesta válida; no acredita un efecto
+  positivo solicitado. La síntesis se revisa contra datos antes de presentarse.
+- No preguntar prematuramente si un catálogo o consulta disponible puede resolver
+  el dato. No permitir que una respuesta de texto cierre una operación sin herramientas.
+- `AGENT_COGNITIVE_PROVIDER=groq` configura el rol cotidiano flexible con GPT-OSS;
+  Qwen queda disponible para modo local y compatibilidad. Respaldos de análisis y
+  desarrollo conservan sus parejas anteriores. No interpretar que el Qwen 1.5B
+  basta para planificar porque pase el corpus antiguo. «Solo local/sin internet»
+  obliga a Ollama ANTES de enviar la primera clasificación y evita escalado cloud.
+- `KNOWLEDGE_ENABLED` y `KNOWLEDGE_VAULT` integran la MISMA SQLite con la bóveda
+  propia ~/Documentos/Limits-Memoria. knowledge.py: FTS, procedencia, versiones,
+  caducidad, cola dirty, bloqueo entre procesos y exportación atómica. Markdown es
+  editable; conflictos e inferencias quedan pendientes y fuera de recuperación.
+- Hechos explícitos se espejan por triggers. Recordar procedimientos solo tras
+  resultados comprobados; las notas históricas no prueban el estado actual.
+  Redactar secretos antes de escribir. Olvidar mantiene tombstones, retira derivados
+  y cambia época global para invalidar contexto en otras sesiones. Los candidatos
+  del modelo no se convierten automáticamente en hechos personales.
+- Las pruebas se aíslan de la bóveda real mediante test_000_aislamiento.py. Probes
+  heredados fuerzan modo anterior. `probe_general_agent.py` usa modelos reales y
+  efectos simulados; `probe_general_live.py --live` usa volumen/sistema y memoria
+  temporal, restaura volumen y servicio. Respetar cuota al medir; publicar fallos.
+
+
+## 12. Ejecución coherente (mejora 5)
+
+- `AGENT_COHERENT=true` junto con AGENT_SEMANTIC usa coherent_agent.py: una
+  decisión puede proponer hasta cuatro pasos independientes, vinculados a citas
+  del usuario. Sin propuesta Qwen, clasificador inicial ni jueces de cierre.
+- Un plan marcado finaliza solo cierra directamente cuando TODOS sus pasos tienen
+  recibos verificados y resúmenes aptos para voz. El modelo interpreta la cobertura;
+  no es una garantía determinista de haber descompuesto bien cualquier petición.
+- La autorización semántica se conserva para efectos no demostrables por controles
+  directos acotados. Los atajos verifican dominio, negaciones, parámetros y catálogo;
+  no aceptar una cita o id de objetivo como permiso suficiente. Mantener grounding,
+  path guard, confirmaciones y sandbox. Lecturas y mutaciones no comparten permisos.
+- Contrato común en command_result.py: completado, fallido, sin_verificar; None no
+  acredita éxito. Handlers antiguos de efectos sin prueba quedan sin verificar.
+- consultar_escritorio observa foco, especiales y ventanas; workspace numérico
+  filtra y genera resumen. cerrar_ventana exige dirección observada; ocultar_especial
+  exige especial observado y verifica el estado actual antes de usar el toggle.
+- Recibos se guardan antes de comprobar una cancelación tardía. No repetir un efecto
+  intentado sin observarlo. Persistir traza privada acotada por turno sin textos ni
+  parámetros: inferencias, duración, herramientas, corrección y cierre.
+- Catálogo cotidiano breve, ampliable por consultar_capacidades; no añadir patrones
+  de frases. Presentación compartida evita estructuras internas y conserva resultados
+  de consultas y acciones de un mismo turno.
+- El usuario pidió únicamente tests automáticos: no ejecutar más probes de modelos
+  ni pedirle una prueba manual guiada. Él probará libremente por voz.
+- Plan/tarea: docs/plan-mejora-5-ejecucion-coherente.md y
+  docs/tasks/mejora-5-ejecucion-coherente.md. No confundir aceptación automática con
+  funcionamiento por voz validado por el usuario.
+
+## 13. Recorrido cotidiano local (vigente, 2026-11-01)
+
+- `AGENT_MODE=local` prevalece sobre flags históricos y fuerza Ollama para el uso
+  cotidiano. Se reutilizan coherent_agent y Orquestador._ejecutar; no añadir otro ciclo.
+  `legacy` mantiene el recorrido anterior. No usar respaldo remoto para órdenes locales.
+- Contrato común para rutas rápidas y Qwen: intent (`command|chat|clarify`),
+  operations (`[{action,params}]`, hasta seis independientes), complete y response.
+  Las rutas completas se compilan sin inferencia; el resto llega COMPLETO a Qwen.
+  No dividir la petición en cláusulas para decidir qué debe atender el modelo.
+- Los esquemas de parámetros derivan de las firmas/contratos reales. El catálogo
+  local no cambia por patrones de frases ni por haber observado una entidad.
+  Los prerrequisitos se comprueban en validación antes de ejecutar. Consultar escritorio
+  es la observación cotidiana de ventanas, foco y especiales. Las familias se descubren
+  con consultar_capacidades; especialistas solo para desarrollo/análisis/investigación.
+- Un lote se valida entero antes del primer efecto. No incluir un efecto que dependa
+  de una observación aún no realizada. El ejecutor vuelve a validar cada operación.
+  Mantener grounding estructural/exclusiones, permisos locales independientes, path guard,
+  catálogo real, confirmaciones explícitas, sandbox y recibos contra repetición.
+- Local_permissions verifica operación/destino en la petición original. Los atajos
+  completos conceden permiso solo a su operación exacta compilada. Ni citas, confianza,
+  recuerdos ni resultados externos autorizan cambios. Ante falta de evidencia, aclarar.
+- El cierre usa recibos de los handlers: completado, fallido o sin_verificar. `complete`
+  indica cobertura interpretada por Qwen, no prueba que haya comprendido todo. Un lote
+  final entrega resultados directamente; solo se marca terminado con todos sus recibos
+  comprobados. No añadir jueces ni otra inferencia para anunciar un resultado.
+- Qwen recibe resultados del turno y la petición actual como último mensaje. El diálogo
+  anterior se incluye solo con referencia explícita, acotado al último intercambio.
+  Recuerdos personales disponibles por herramientas; no inyectar episodios automáticamente.
+  El reproductor explícito conserva su referencia por sesión cinco minutos/generación.
+- installed_apps abre ids .desktop observados con huella vigente. Spotify MCP stdio/PKCE
+  permanece preparado y DESACTIVADO hasta Client ID/OAuth (`SPOTIFY_MCP_ENABLED=false`).
+  No cambiar modelo ni atribuir entrenamiento de pesos a cambios de contexto/prompts.
+- Diagnóstico opt-in `AGENT_QWEN_DIAGNOSTICS`: salidas-qwen.jsonl privado por turno,
+  redacción de secretos, máximo 128 KiB, nunca textos ni parámetros en INFO.
+- Restricción vigente: NO ejecutar tests, probes, consultas de aceptación a modelos ni
+  pruebas manuales guiadas. Solo revisión estática/sintaxis y estado/arranque del servicio.
+  No anunciar aceptación funcional ni tests superados. Reversión en el respaldo privado;
+  no restaurar aprobaciones ni borrar memoria/bóveda. Los módulos legacy con consumidores
+  se conservan para reversión y especialistas; no borrar código a ciegas.
+
+- Catálogo de apps local: disponibles por PATH y parámetros app con enum derivado.
+  Alias de explorador usan asociación XDG inode/directory; no imponer Thunar.
+  Coincidencias aproximadas solo sugieren: no autorizan abrir otra app automáticamente.
+- Una orden de cambio no termina mediante consultas preparatorias ni chat. Abrir un
+  editor vacío no cumple abrir un proyecto. No convertir complete en prueba de cobertura.
+- Multimedia espera disponibilidad/capacidad MPRIS, permite cancelación antes del envío,
+  manda UN efecto y observa estado/identidad de pista después. No repetir ni cambiar
+  reproductor/transporte por incertidumbre. Si no hay contenido/control, explicarlo.
