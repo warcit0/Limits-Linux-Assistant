@@ -371,7 +371,7 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                         historiales_ordenes[session_id] = list(llm.conversation_history)
                     response_text = ejecutar_visual(parsed)
                 else:
-                    if getattr(type(tts), "iniciar_espera", None) is not None:
+                    if speak and progress_voice is None and getattr(type(tts), "iniciar_espera", None) is not None:
                         tts.iniciar_espera(lambda: orchestrator.cancelar(session_id))
                         escucha_activa = True
                     propuesta_local = None
@@ -641,7 +641,7 @@ def main():
     speech = SpeechController(
         tts,
         stt=stt,
-        enabled=config.BARGEIN_ENABLED,
+        enabled=config.BARGEIN_ENABLED and config.LOCAL_INPUT_MODE != "ptt",
         keywords=[k.strip() for k in config.BARGEIN_KEYWORDS.split(",")
                   if k.strip()],
         min_ms=config.BARGEIN_MIN_MS,
@@ -685,6 +685,7 @@ def main():
 
     # ── Gateway móvil: el texto remoto entra al MISMO pipeline (opt-in) ─────
     gateway = None
+    voz_remota = SpeechController(tts, stt=None, enabled=False)
     if config.GATEWAY_ENABLED:
         from modules.gateway import GatewayServer
         try:
@@ -696,8 +697,8 @@ def main():
                 token_path=config.GATEWAY_TOKEN_PATH or None,
                 app_version=__version__,
                 speak_remote=config.GATEWAY_SPEAK_LOCAL,
-                speak_fn=speech.speak,
-                stop_fn=speech.stop,
+                speak_fn=voz_remota.speak,
+                stop_fn=voz_remota.stop,
                 # El micro del móvil dicta «para» como texto: eso también corta.
                 stop_words=[k.strip() for k in config.BARGEIN_KEYWORDS.split(",")
                             if k.strip()],
@@ -724,6 +725,12 @@ def main():
 
     global _shutdown_requested
 
+    ptt = None
+    if not args.text and config.LOCAL_INPUT_MODE == "ptt":
+        from modules.push_to_talk import PushToTalk
+        ptt = PushToTalk(config.PTT_SOCKET)
+        console.print("[green]Entrada local: mantén F9, habla y suelta para enviar.[/green]")
+
     seguimiento_hasta = 0.0
     try:
         while not _shutdown_requested:
@@ -741,8 +748,24 @@ def main():
 
             else:
                 # ── Modo voz ───────────────────────────────────────────────
-                sin_wake_word = time.monotonic() < seguimiento_hasta
-                user_input = stt.listen_and_transcribe()
+                sin_wake_word = ptt is not None or time.monotonic() < seguimiento_hasta
+                if ptt is not None:
+                    if not ptt.esperar(lambda: _shutdown_requested):
+                        break
+                    if not gate.acquire(0):
+                        console.print("[dim]Turno ocupado; vuelve a pulsar F9 cuando termine.[/dim]")
+                        continue
+                    try:
+                        audio = stt.record_while_pressed(
+                            lambda: not _shutdown_requested and ptt.sostenida())
+                        user_input = stt.transcribe(audio) if audio and not ptt.expirada and not _shutdown_requested else ""
+                    except Exception:
+                        log.exception("Falló la captura local por F9")
+                        user_input = ""
+                    finally:
+                        gate.release()
+                else:
+                    user_input = stt.listen_and_transcribe()
                 presence.escucha(False)
 
                 if not user_input:
@@ -801,6 +824,8 @@ def main():
     finally:
         if orchestrator is not None:
             orchestrator.cancelar("local")
+        if ptt is not None:
+            ptt.cerrar()
         if gateway:
             gateway.stop()
         speech.speak("Hasta luego.")

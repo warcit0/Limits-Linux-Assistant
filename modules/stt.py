@@ -131,6 +131,39 @@ class STTEngine:
 
         return wav_buffer.getvalue()
 
+    def record_while_pressed(self, sostenida) -> bytes | None:
+        """Captura solo durante la pulsación; suelta el dispositivo antes de inferir."""
+        from modules.presence import escucha
+        if not sostenida():
+            return None
+        stream = self.audio.open(
+            format=self.FORMAT, channels=self.CHANNELS, rate=self.RATE,
+            input=True, input_device_index=self.input_device_index,
+            frames_per_buffer=self.CHUNK)
+        frames = []
+        voz = False
+        try:
+            escucha(True)
+            while sostenida():
+                data = stream.read(self.CHUNK, exception_on_overflow=False)
+                frames.append(data)
+                voz = self.vad.is_speech(data, self.RATE) or voz
+        finally:
+            try:
+                stream.stop_stream()
+            finally:
+                stream.close()
+                escucha(False)
+        if not voz:
+            return None
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wf:
+            wf.setnchannels(self.CHANNELS)
+            wf.setsampwidth(self.audio.get_sample_size(self.FORMAT))
+            wf.setframerate(self.RATE)
+            wf.writeframes(b"".join(frames))
+        return buffer.getvalue()
+
     def transcribe(self, audio_bytes: bytes) -> str:
         """
         Transcribe audio WAV a texto.

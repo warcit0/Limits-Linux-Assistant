@@ -108,6 +108,8 @@ class Config:
     )
     VOICE_SPEED: float     = float(os.getenv("VOICE_SPEED", "1.0"))
     VOICE_SPEAKER: int | None = int(os.getenv("VOICE_SPEAKER")) if os.getenv("VOICE_SPEAKER") else None
+    LOCAL_INPUT_MODE: str = os.getenv("LOCAL_INPUT_MODE", "wakeword").strip().lower()
+    PTT_SOCKET: str = os.path.join(os.getenv("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"), "limits-ptt", "control.sock")
     WAKE_WORD: str         = os.getenv("WAKE_WORD", "Limits")
     RESPONSE_LANGUAGE: str = os.getenv("RESPONSE_LANGUAGE", "es")
     # Zona horaria para {now}; vacío = la del sistema

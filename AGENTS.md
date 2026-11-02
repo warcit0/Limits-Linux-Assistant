@@ -604,3 +604,13 @@ docs/tasks/mejora-8-agente-unico.md.
 - NO ejecutar tests/probes/inferencias de aceptación. Solo revisión estática/sintaxis
   y arranque. Los escenarios con dobles se preparan sin ejecutarlos; voz y latencia
   pendientes del uso libre del usuario. APK previo aún requiere instalación en móvil.
+
+### Entrada local PTT y móvil aislado (2026-11-01)
+- LOCAL_INPUT_MODE=ptt: micrófono local cerrado salvo mientras se sostiene F9;
+  al soltar transcribe sin wake word. No activar barge-in ni seguimiento ambiental.
+- bin/limits-ptt press|release comunica por socket Unix privado; Hyprland usa bind
+  y bindr. Captura máxima 30 s: si falta la liberación, descarta audio. Pulsaciones
+  durante procesamiento no se encolan; captura y turnos móviles comparten TurnGate.
+- Gateway usa su propio SpeechController sin STT; el teléfono sigue sin wake word
+  y conserva stop/cancelación de su sesión. Nunca escuchar el PC por audio remoto.
+- Escucha heredada descarta transcripciones tardías y eco antes de cancelar.

@@ -172,11 +172,12 @@ class SpeechController:
         def escuchar():
             try:
                 texto = self._listen(TrabajoVigente(), "")
-                if texto.strip():
+                if texto.strip() and not fin.is_set():
                     if classify_interruption(texto, "", self.keywords,
                                              self.echo_threshold) == "command":
                         self.pending_text = texto
-                    cancelar()
+                    if classify_interruption(texto, "", self.keywords, self.echo_threshold) != "echo":
+                        cancelar()
             except Exception:
                 # Si el dispositivo falla, el turno conserva la cancelación móvil.
                 import logging
@@ -269,7 +270,7 @@ class SpeechController:
                 total = 0
                 max_frames = int(stt.RATE / stt.CHUNK * self.max_utterance_s)
                 silence_limit = int(self.silence_ms / 30.0)
-                while total < max_frames:
+                while total < max_frames and tts_thread.is_alive():
                     try:
                         data = stream.read(stt.CHUNK, exception_on_overflow=False)
                     except Exception:
@@ -284,6 +285,9 @@ class SpeechController:
                     if silent > silence_limit:
                         break
 
+                if not tts_thread.is_alive():
+                    resume_all()
+                    return ""
                 try:
                     heard = stt.transcribe(self._wav(stt, frames))
                 except Exception:
@@ -295,7 +299,10 @@ class SpeechController:
                 if debug:
                     console.print(f"[dim]bargein oyó: {heard!r} "
                                   f"(eco={looks_like_echo(heard, spoken)})[/dim]")
-                if not heard.strip() or looks_like_echo(heard, spoken):
+                if not tts_thread.is_alive():
+                    resume_all()
+                    return ""
+                if classify_interruption(heard, spoken, self.keywords, self.echo_threshold) == "echo":
                     resume_all()
                     # Enfriamiento: evita el bucle pausa/reanuda si los
                     # altavoces se oyen a través del micro.

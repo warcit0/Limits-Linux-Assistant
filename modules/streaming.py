@@ -242,13 +242,14 @@ class FlujoVoz:
             from modules.speech_controller import classify_interruption
 
             texto = speech._listen(self.hilo, lambda: self.actual)
-            if texto:
+            if texto and vigente() and not self.fin.is_set():
                 if (
                     classify_interruption(texto, self.actual, speech.keywords)
                     == "command"
                 ):
                     speech.pending_text = texto
-                cancelar()
+                if classify_interruption(texto, self.actual, speech.keywords) != "echo":
+                    cancelar()
 
         self.oyente = None
         if speech.enabled:

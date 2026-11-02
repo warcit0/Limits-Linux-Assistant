@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""Envía únicamente el estado de F9 al servicio local."""
+import os
+from pathlib import Path
+import socket
+import sys
+
+if len(sys.argv) != 2 or sys.argv[1] not in ('press', 'release'):
+    raise SystemExit('Uso: limits-ptt press|release')
+# Misma ruta privada que Config.PTT_SOCKET; sin cargar modelos ni secretos.
+path = Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')) / 'limits-ptt/control.sock'
+with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as client:
+    try:
+        client.sendto(sys.argv[1].encode(), str(path))
+    except OSError:
+        raise SystemExit('Limits no está disponible en modo pulsar para hablar.')
