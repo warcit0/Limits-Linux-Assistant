@@ -7,12 +7,18 @@ def esquema_conversacion(herramientas, contratos):
     from modules.coherent_agent import esquema_local
     base = esquema_local(herramientas, contratos)
     base['properties']['intent']['enum'] = ['command', 'chat', 'clarify']
+    base['properties']['pending'] = {'type':'array','items':{'type':'string'}}
+    base['required'].append('pending')
+    for variante in base['properties']['operations']['items']['anyOf']:
+        variante['properties']['depends_on'] = {'type':'array','items':{'type':'integer','minimum':0}}
+        variante['required'].append('depends_on')
     # Los máximos se validan al recibir la decisión: las repeticiones grandes
     # de la gramática de Ollama pueden derribar su proceso de inferencia.
     especialista = {'type':'object','properties':{
         'intent':{'const':'delegate'}, 'role':{'enum':['analisis','desarrollo','investigacion']},
-        'response':{'type':'string'}},
-        'required':['intent','role','response'],'additionalProperties':False}
+        'goal':{'type':'string','minLength':1},'reason':{'type':'string','minLength':1},
+        'response':{'const':''}},
+        'required':['intent','role','goal','reason','response'],'additionalProperties':False}
     return {'anyOf':[base,especialista]}
 
 
@@ -23,6 +29,13 @@ def contexto_conversacion(tarea, contexto, anterior):
              dialogo=tarea.dialogo[-6:], memorias=tarea.memorias[:2],
              referencias_aclaracion=tarea.entidades.get('referencias_aclaracion',[]),
              familias_disponibles=contexto.get('familias_disponibles',[]))
+    if tarea.pendientes_objetivo:
+        c['pendientes'] = list(tarea.pendientes_objetivo)
+    if tarea.plan_resultados:
+        # Los recibos ya contienen parámetros y resultados: no duplicar el
+        # objetivo completo por cada paso del plan en el contexto del modelo.
+        c['plan_resultados'] = [{k:v for k,v in p.items() if k in {'accion','estado','recibo'}}
+                               for p in tarea.plan_resultados]
     if tarea.entidades.get('decision_rechazada'):
         c['decision_rechazada'] = deepcopy(tarea.entidades['decision_rechazada'])
         c.pop('errores', None)  # El motivo concreto ya acompaña a la operación.
@@ -43,10 +56,13 @@ def decidir_interlocutor(o, tarea, contexto, anterior):
     if not isinstance(d,dict):
         raise ValueError('El interlocutor debe devolver una decisión estructurada.')
     if d.get('intent') == 'delegate':
-        if (set(d) != {'intent','response','role'} or not isinstance(d['response'],str)
-                or len(d['response'])>500 or d['role'] not in {'analisis','desarrollo','investigacion'}):
-            raise ValueError('Indica un especialista disponible y response vacío.')
-        return {'tipo':'delegar','rol':d['role']}
+        if (set(d) != {'intent','response','role','goal','reason'} or d['response'] != ''
+                or d['role'] not in {'analisis','desarrollo','investigacion'}
+                or any(not isinstance(d[k],str) or not d[k].strip() or len(d[k])>1200 for k in ('goal','reason'))):
+            raise ValueError('Indica especialista, goal pendiente, reason concreto y response vacío.')
+        if c.get('resultados') and d['goal'] not in tarea.pendientes_objetivo:
+            raise ValueError('Solo puedes delegar un objetivo de pendientes; no vuelvas a encargar lo ya ejecutado.')
+        return {'tipo':'delegar','rol':d['role'],'objetivo':d['goal'],'motivo':d['reason']}
     salida = decision_local(d,tarea)
     salida['completa'] = d['complete']
     if salida['tipo'] in {'respuesta','pregunta'}:
@@ -66,6 +82,7 @@ def estado_respuesta(tarea, decision):
         return 'terminada' if decision.get('completa') is True else 'parcial'
     tarea.entidades['tipo_cierre'] = 'operacion'
     if (decision.get('completa') is not True
+            or tarea.pendientes_objetivo
             or any(p['estado'] != 'completado' for p in tarea.plan_resultados)
             or any(h.get('error') or not h.get('resultado',{}).get('ok') or not h.get('resultado',{}).get('verificado') for h in resultados)):
         return 'parcial'

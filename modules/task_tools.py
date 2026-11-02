@@ -219,17 +219,26 @@ class HerramientasTarea:
             raise ValueError("Primero observa el archivo con listar_carpeta.")
         return ruta
 
-    def normalizar_parametros(self,nombre,parametros):
+    def normalizar_parametros(self,nombre,parametros, *, tarea=None):
+        """Obtiene parámetros canónicos ANTES de firmar permisos y recibos."""
         from modules.argument_contracts import normalizar_argumentos
         handler = self.executor.action_map.get(nombre)
         p = normalizar_argumentos(handler,parametros) if handler else parametros
         if nombre in {'open_application','close_application','focus_window'} and isinstance(p,dict):
             from modules.app_router import resolver_aplicacion
             p = {**p,'app':resolver_aplicacion(p.get('app','')) or p.get('app','')}
+        if handler:
+            veredicto = check(nombre,p,'',self.executor.action_map,semantic_evidence=True)
+            if not veredicto.ok:
+                raise ValueError('Parámetros fuera del contrato: '+veredicto.reason)
+            p = veredicto.params
+        if tarea is not None and tarea.semantica and nombre == 'media_control':
+            if p.get('action') == 'play' or getattr(tarea,'coherente',False):
+                p = {**p,'verify':True}
         return p
 
     def validar(self, tarea, nombre, parametros):
-        parametros = self.normalizar_parametros(nombre,parametros)
+        parametros = self.normalizar_parametros(nombre,parametros,tarea=tarea)
         if nombre not in self.catalogo(tarea) or not isinstance(parametros, dict):
             raise ValueError("Herramienta o parámetros no permitidos para esta tarea.")
         if tarea.semantica and nombre in self.capacidades.catalogo(tarea):
@@ -280,8 +289,6 @@ class HerramientasTarea:
             ruta = Path(parametros["path"])
             if nombre == "open_file" and (ruta.suffix.lower() in {".desktop",".appimage",".sh",".run"} or ruta.is_file() and ruta.stat().st_mode & 0o111):
                 raise ValueError("No abriré un ejecutable como si fuera un documento. Usa una aplicación instalada o el flujo de scripts.")
-        if tarea.semantica and nombre == "media_control" and (parametros.get("action") == "play" or getattr(tarea,"coherente",False)):
-            parametros = {**parametros, "verify": True}
         handler = self.executor.action_map[nombre]
         inspect.signature(handler).bind(**parametros)
         if any(not isinstance(v, (str, int, float, bool, type(None))) for v in parametros.values()):
@@ -304,7 +311,8 @@ class HerramientasTarea:
     def ejecutar(self, tarea, nombre, parametros, cancelar):
         parametros = self.validar(tarea, nombre, parametros)
         if cancelar.is_set():
-            raise ErrorProveedor("Tarea cancelada.")
+            from modules.agent_providers import Cancelado
+            raise Cancelado("Tarea cancelada.")
         if tarea.semantica and nombre in self.capacidades.catalogo(tarea):
             return self.capacidades.ejecutar(tarea, nombre, parametros, cancelar)
         if nombre.startswith("operacion_"):
@@ -356,6 +364,8 @@ class HerramientasTarea:
             sistema = getattr(handler,'__self__',None)
             if nombre == 'media_control' and hasattr(sistema,'_control_multimedia'):
                 resultado = sistema._control_multimedia(**parametros,cancelar=cancelar)
+            elif nombre == 'close_application' and hasattr(sistema,'_cerrar_app'):
+                resultado = sistema._cerrar_app(**parametros,cancelar=cancelar)
             else:
                 resultado = handler(**parametros)
         if nombre == "search_file":

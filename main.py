@@ -104,7 +104,7 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
         def detener_visual():
             detenido_visual.set()
             if orchestrator is not None:
-                orchestrator.cancelar(session_id)
+                orchestrator.cancelar(session_id,motivo='widget')
             executor.cancel_pending()
             voz = progress_voice if progress_voice is not None else tts
             if callable(getattr(voz, "stop", None)):
@@ -167,7 +167,7 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
             voz = progress_voice if progress_voice is not None else tts if speak else None
             if flujo is None and evento.get("type") in {"status", "delta", "espera"} and getattr(type(voz), "_listen", None) is not None:
                 terminar_escucha()
-                flujo = FlujoVoz(voz, lambda: orchestrator.cancelar(session_id), vigente)
+                flujo = FlujoVoz(voz, lambda: orchestrator.cancelar(session_id,motivo='interrupcion_voz'), vigente)
                 frases = FrasesProgresivas(flujo.decir)
                 if on_progress:
                     on_progress({"type":"audio","state":"started"})
@@ -244,7 +244,7 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                     final_visual = "interrumpido"
                     executor.cancel_pending()
                     if orchestrator is not None:
-                        orchestrator.cancelar(session_id)
+                        orchestrator.cancelar(session_id,motivo='interrupcion_voz')
             return texto
 
         response_text = ""
@@ -292,7 +292,7 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                         and executor._pending_action is None):
                     voz_espera = progress_voice if progress_voice is not None else tts if speak else None
                     if voz_espera is tts and getattr(type(tts),'iniciar_espera',None) is not None:
-                        tts.iniciar_espera(lambda:orchestrator.cancelar(session_id))
+                        tts.iniciar_espera(lambda:orchestrator.cancelar(session_id,motivo='interrupcion_voz'))
                         escucha_activa = True
                     if getattr(orchestrator.config,'AGENT_MODE','legacy') == 'conversacional' and voz_espera is not None:
                         def avisar_espera():
@@ -372,7 +372,7 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                     response_text = ejecutar_visual(parsed)
                 else:
                     if speak and progress_voice is None and getattr(type(tts), "iniciar_espera", None) is not None:
-                        tts.iniciar_espera(lambda: orchestrator.cancelar(session_id))
+                        tts.iniciar_espera(lambda: orchestrator.cancelar(session_id,motivo='interrupcion_voz'))
                         escucha_activa = True
                     propuesta_local = None
                     historial_antes = list(historiales_ordenes.get(session_id,[]))
@@ -496,7 +496,7 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
         finally:
             cerrar_aviso()
             if flujo is not None and not flujo_cerrado:
-                orchestrator.cancelar(session_id)
+                orchestrator.cancelar(session_id,motivo='cierre_flujo')
                 flujo.cerrar()
             try:
                 terminar_escucha()
@@ -521,6 +521,7 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
     pipeline.session_aware = orchestrator is not None
     pipeline.progress_aware = orchestrator is not None
     pipeline.cancel = orchestrator.cancelar if orchestrator is not None else None
+    pipeline.cancel_with_reason = orchestrator.cancelar if orchestrator is not None else None
     pipeline.generation = orchestrator.generacion if orchestrator is not None else None
     return pipeline
 
@@ -823,7 +824,7 @@ def main():
         console.print("\n[yellow]Interrumpido por el usuario.[/yellow]")
     finally:
         if orchestrator is not None:
-            orchestrator.cancelar("local")
+            orchestrator.cancelar("local",motivo='apagado')
         if ptt is not None:
             ptt.cerrar()
         if gateway:

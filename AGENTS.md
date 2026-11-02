@@ -633,3 +633,31 @@ docs/tasks/mejora-8-agente-unico.md.
   ni ampliar plazo. No anunciar ahorro de latencia hasta observar uso real.
 - Evidencia/límites: docs/validaciones/capacidades-cotidianas-por-objeto.md. Seis
   regresiones preparadas, NO ejecutadas; solo sintaxis, revisión y arranque.
+
+### Autorización, dependencias y cierre (2026-11-01)
+- Normalizar aliases, enums y parámetros internos (verify multimedia) ANTES de
+  autorizar. Validación/ejecución reutilizan esos parámetros canónicos; no propagar
+  permisos a parámetros cambiados después de firmar. Atajos completos de apertura
+  habilitan su contrato interno antes de comprobar el catálogo; no exponerlo a Qwen.
+- Conversación añade pending: complete=false en command identifica qué faltará
+  después del lote; complete=true exige pending vacío. No añadir inferencias de
+  cierre a lotes finales. La cobertura semántica sigue dependiendo del modelo.
+- Operations admite depends_on, índices anteriores del MISMO lote empezando por 0.
+  Todos los destinos/permisos se preparan antes de efectos; solo recibos comprobados
+  habilitan dependientes. Un resultado incierto bloquea el dependiente y se comunica
+  lo ejecutado. Datos aún no observados requieren otra decisión, no parámetros futuros.
+  Aprobaciones de lote conservan y revalidan las dependencias en su huella.
+- Delegate requiere goal y reason. Tras resultados solo admite un goal declarado en
+  pendientes; el especialista recibe ese encargo, manteniendo la petición original,
+  las rutas, confirmaciones y recibos. No delegar para anunciar/verificar una acción
+  ya comprobada; no se añade juez ni clasificación por frases.
+- Cancelación conserva recibos anteriores y registra origen técnico por turno; no
+  reabrir voz tras stop ni convertir un corte de audio en fallo del efecto anterior.
+- Cerrar apps espera hasta cuatro segundos, sin segundo envío ni kill forzado;
+  diferencia ventanas abiertas, ventanas cerradas con procesos restantes y salida
+  completa. Cancelación llega también a esta espera.
+- Diagnóstico opt-in de Ollama: fase, HTTP, clase/código, primer token y tamaños;
+  sin cuerpo de error ni prompts en log general. No atribuir un HTTP 500 a una
+  causa interna desconocida ni reintentar efectos para solucionar una inferencia.
+- Evidencia: docs/validaciones/ciclo-autorizacion-cierre.md. NO ejecutar tests,
+  probes ni inferencias de aceptación; solo sintaxis/revisión y arranque del servicio.

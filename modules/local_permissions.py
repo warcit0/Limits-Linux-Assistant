@@ -53,7 +53,7 @@ def autorizar(tarea, accion, p, herramientas):
     from modules.task_tools import LECTURAS, ACCIONES
     directa = tarea.entidades.get('orden_rapida')
     if directa and accion == directa.get('action'):
-        esperado = herramientas.normalizar_parametros(accion,directa.get('params',{}))
+        esperado = herramientas.normalizar_parametros(accion,directa.get('params',{}),tarea=tarea)
         if p == esperado:
             return  # Reconocedor de frase completa; los tipos, rutas y recibos siguen en el ejecutor.
     if accion in LECTURAS | {'listar_carpeta','leer_archivo','probar_script'}:

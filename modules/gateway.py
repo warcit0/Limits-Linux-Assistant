@@ -425,16 +425,21 @@ class GatewayServer:
         finally:
             for task in list(pending):
                 task.cancel()
-            cancelar = getattr(self.pipeline, "cancel", None)
-            if callable(cancelar):
-                await asyncio.to_thread(cancelar, self._session_id(ws))
+            await asyncio.to_thread(self._cancelar_sesion,self._session_id(ws),'desconexion')
             log.info("cliente desconectado")
+
+    def _cancelar_sesion(self, sesion, motivo):
+        cancelar = getattr(self.pipeline,'cancel_with_reason',None)
+        if callable(cancelar):
+            cancelar(sesion,motivo=motivo)
+        else:
+            cancelar = getattr(self.pipeline,'cancel',None)
+            if callable(cancelar):
+                cancelar(sesion)
 
     async def _handle_stop(self, ws) -> None:
         """Corta el TTS en curso sin tocar el turno (ni el lock) en marcha."""
-        cancelar = getattr(self.pipeline, "cancel", None)
-        if callable(cancelar):
-            await asyncio.to_thread(cancelar, self._session_id(ws))
+        await asyncio.to_thread(self._cancelar_sesion,self._session_id(ws),'movil_stop')
         if self.stop_fn is not None:
             try:
                 await asyncio.to_thread(self.stop_fn)
@@ -522,7 +527,7 @@ class GatewayServer:
                             resultado_voz = self.speak_fn(respuesta)
                         cancelar = getattr(self.pipeline, "cancel", None)
                         if resultado_voz == "interrupted" and callable(cancelar):
-                            cancelar(self._session_id(ws))
+                            self._cancelar_sesion(self._session_id(ws),'interrupcion_voz')
                     except Exception:
                         log.warning("TTS remoto falló; la respuesta ya se envió",
                                     exc_info=True)

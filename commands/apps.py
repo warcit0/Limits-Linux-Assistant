@@ -106,13 +106,30 @@ class AppCommands:
 
     def close_app(self, app: str) -> None:
         """Termina procesos o apaga aplicaciones de forma segura."""
+        return self._cerrar_app(app)
+
+    def _cerrar_app(self, app, *, cancelar=None):
+        """Envío único y espera acotada; diferencia ventanas de procesos."""
+        from modules.command_result import ResultadoComando
+        def detenido():
+            return cancelar is not None and cancelar.is_set()
+        def ventanas():
+            from commands.system import SystemCommands
+            try:
+                r = subprocess.run(['hyprctl','-j','clients'],capture_output=True,text=True,timeout=1,check=True)
+                return [c for c in json.loads(r.stdout) if c.get('mapped',True) and SystemCommands.coincide_clase(app,c)]
+            except (OSError,ValueError,TypeError,subprocess.SubprocessError):
+                return None
+        if detenido():
+            return ResultadoComando('Cierre cancelado antes de enviar la solicitud.',ok=False)
         app_lower = app.lower()
+        antes = ventanas()
+        if detenido():
+            return ResultadoComando('Cierre cancelado antes de enviar la solicitud.',ok=False)
 
         # Cierre seguro para Steam (evita corrupción de archivos)
         if app_lower == "steam":
             subprocess.run(["steam", "-shutdown"],timeout=3,check=True)
-            from modules.command_result import ResultadoComando
-            return ResultadoComando("He solicitado cerrar Steam; todavía no he comprobado su salida.",ok=True)
 
         target = self.PROCESS_ALIASES.get(app_lower, app_lower)
         killed = False
@@ -127,16 +144,30 @@ class AppCommands:
                     or name.startswith(target + "-")
                     or name.startswith(target + ".")
                 ):
-                    proc.terminate()
+                    if detenido():
+                        break
+                    if app_lower != 'steam':
+                        proc.terminate()
                     killed = True
                     terminados.append(proc)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
-        from modules.command_result import ResultadoComando
         if not killed:
+            if app_lower == 'steam':
+                return ResultadoComando('He solicitado cerrar Steam; no he podido observar sus procesos.',ok=True)
+            if detenido():
+                return ResultadoComando('Cierre cancelado antes de enviar la solicitud.',ok=False)
             return ResultadoComando(f"No encontré {app} en ejecución; no he cerrado ninguna aplicación.",ok=False)
-        _, vivos = psutil.wait_procs(terminados, timeout=2)
+        fin = time.monotonic()+4
+        vivos = terminados
+        while vivos and time.monotonic()<fin and not detenido():
+            _, vivos = psutil.wait_procs(vivos,timeout=.15)
+        despues = ventanas()
+        if despues:
+            return ResultadoComando(f'He solicitado cerrar {app}; todavía tiene ventanas abiertas.',ok=True)
         if vivos:
+            if antes and despues == []:
+                return ResultadoComando(f'Las ventanas de {app} se cerraron; todavía quedan procesos y no confirmo su salida completa.',ok=True)
             return ResultadoComando(f"He solicitado cerrar {app}; todavía hay procesos activos.",ok=True)
         return ResultadoComando(f"{app} está cerrado; sus procesos terminaron.",ok=True,verificado=True)
 

@@ -6,6 +6,12 @@ cambios rompientes en cualquier release.
 
 ## [Unreleased]
 
+- Parámetros canónicos previos a la autorización, pendientes explícitos y
+  dependencias verificadas entre operaciones; delegación limitada al encargo
+  pendiente y cancelación que conserva recibos. Aperturas rápidas restauradas,
+  cierre de apps con observación de ventanas/procesos y diagnóstico de fallos y
+  primer token de Ollama. Regresiones preparadas, sin ejecutar pruebas.
+
 - Capacidades cotidianas por objeto: resolver aplicaciones, ventanas y proyectos
   antes de efectos, aclarar ambigüedad sin otra inferencia y conservar ruta exacta.
   Recuperación con propuesta/motivo, contexto compacto y preparaciones internas

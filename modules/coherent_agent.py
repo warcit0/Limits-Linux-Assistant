@@ -153,8 +153,15 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
     directa = compilar_rapida(entrada,archivos=o.executor.files) if tarea.cotidiano_local else None
     if directa and directa['operations'] and directa['operations'][0]['action'] == 'spotify_play' and getattr(o.config,'SPOTIFY_MCP_ENABLED',False):
         directa = None
+    if directa and directa['operations'] and directa['operations'][0]['action'] == 'open_application':
+        from commands.apps import AppCommands
+        if directa['operations'][0]['params'].get('app') in AppCommands.disponibles():
+            # Habilitar el contrato interno antes de comprobar el catálogo;
+            # Qwen sigue viendo solo la capacidad por nombre.
+            tarea.entidades['orden_rapida'] = directa['operations'][0]
     if directa and any(p['action'] not in o.herramientas.catalogo(tarea) for p in directa['operations']):
         directa = None
+        tarea.entidades.pop('orden_rapida',None)
     if directa and directa['operations']:
         tarea.entidades['orden_rapida'] = directa['operations'][0]
         accion = directa['operations'][0]['action']
@@ -188,6 +195,8 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                     'memorias':tarea.memorias[:3], 'reproductor_elegido':tarea.entidades.get('reproductor_elegido'),
                     'resultados':[{'id':i,**h} for i,h in enumerate(pasos)],
                     'pendientes':tarea.pendientes_objetivo,'plan_resultados':tarea.plan_resultados,'errores':tarea.errores_plan[-2:]}
+                if tarea.rol != 'cotidiano' and tarea.entidades.get('encargo_especialista'):
+                    contexto['entrada'] = tarea.entidades['encargo_especialista']
                 prompt = o.prompt_local if local else PROMPT
                 if local:
                     contexto = contexto_acotado(contexto, o.config.AGENT_CONTEXT_CHARS)
@@ -217,12 +226,14 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                         validar_delegacion(entrada, rol)
                     delegado = True
                     if tarea.conversacional:
+                        tarea.entidades['encargo_especialista'] = decision['objetivo']
+                        o._trazar(tarea,'delegacion',rol=rol,resultados_previos=len(pasos),pendientes=len(tarea.pendientes_objetivo))
                         with o._lock:
                             activo = o._activos[tarea.sesion]
                             o._activos[tarea.sesion] = (activo[0], inicio + o.config.AGENT_TIMEOUT, tarea)
                     tarea.rol = rol
                     if rol == 'investigacion':
-                        o._investigar(tarea,entrada)
+                        o._investigar(tarea,decision.get('objetivo',entrada))
                         return
                     continue
                 if tipo == 'plan':
@@ -233,7 +244,8 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                         raise ValueError('El plan supera el presupuesto de herramientas del turno.')
                     # Validar TODO el lote antes del primer efecto. La cita no concede permisos.
                     for paso in plan:
-                        if not isinstance(paso,dict) or not isinstance(paso.get('solicitud'),str) or not paso['solicitud'].strip() or paso['solicitud'] not in entrada:
+                        fuente = tarea.entidades.get('encargo_especialista',entrada) if not local else entrada
+                        if not isinstance(paso,dict) or not isinstance(paso.get('solicitud'),str) or not paso['solicitud'].strip() or paso['solicitud'] not in fuente:
                             raise ValueError('El paso debe vincularse a una cita literal de la petición actual.')
                         if paso.get('accion') not in o.herramientas.catalogo(tarea) or not isinstance(paso.get('parametros'),dict):
                             raise ValueError('El plan contiene una capacidad o parámetros no disponibles.')
@@ -243,7 +255,7 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                         claves = []
                         for paso in plan:
                             accion = paso['accion']
-                            p = o.herramientas.normalizar_parametros(accion,paso['parametros'])
+                            p = o.herramientas.normalizar_parametros(accion,paso['parametros'],tarea=tarea)
                             if tarea.conversacional:
                                 evento, _ = o._comprobar(tarea)
                                 inicio_preparacion = time.monotonic()
@@ -258,11 +270,12 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                             if clave in intentos_locales or clave in claves:
                                 raise ValueError('La operación ya se intentó. Usa su resultado; no la repitas.')
                             claves.append(clave)
-                            # Lote independiente: permisos y destinos de TODOS antes del primer efecto.
+                            # Permisos y destinos de TODO el lote antes del primer efecto.
                             o._autorizar_operacion(tarea,accion,p)
-                            o.herramientas.validar(tarea,accion,p)
-                            paso['parametros'] = p
+                            paso['parametros'] = o.herramientas.validar(tarea,accion,p)
                         tarea.entidades.pop('decision_rechazada', None)
+                    if local and tarea.conversacional:
+                        tarea.pendientes_objetivo = decision.get('pendientes',[])
                     registros = [{**paso,'estado':'pendiente'} for paso in plan]
                     tarea.plan_resultados.extend(registros)
                     if local and tarea.conversacional:
@@ -275,11 +288,16 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                     inicio_lote = len(resultados_turno(tarea))
                     for indice, (paso, registro) in enumerate(zip(plan,registros)):
                         accion = paso['accion']
+                        if not dependencias_cumplidas(paso,registros):
+                            registro['estado'] = 'bloqueado'
+                            o._trazar(tarea,'dependencia_bloqueada',indice=indice)
+                            continue
                         if local:
                             # No consumir recibos de pasos posteriores que todavía
                             # no se ejecutaron si falla otro elemento del lote.
                             intentos_locales.add(claves[indice])
-                        tarea.pendientes_objetivo = list(dict.fromkeys(tarea.pendientes_objetivo+[paso['solicitud']]))
+                        if not tarea.conversacional:
+                            tarea.pendientes_objetivo = list(dict.fromkeys(tarea.pendientes_objetivo+[paso['solicitud']]))
                         o._ejecutar(tarea,accion,paso['parametros'])
                         if tarea.estado != 'trabajando':
                             return
@@ -299,10 +317,11 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                     nuevos = resultados_turno(tarea)[inicio_lote:]
                     resumenes = [h.get('resultado',{}).get('resumen','') for h in nuevos]
                     completo = len(nuevos) == len(plan) and all(p['estado'] == 'completado' for p in tarea.plan_resultados)
-                    if local and tarea.conversacional and (decision.get('finaliza') is True or errores):
+                    bloqueados = any(p['estado'] == 'bloqueado' for p in registros)
+                    if local and tarea.conversacional and (decision.get('finaliza') is True or errores or bloqueados):
                         tarea.cobertura_completa = decision.get('finaliza') is True
                         tarea.entidades['tipo_cierre'] = 'operacion'
-                        tarea.pendientes_objetivo = [p['solicitud'] for p in tarea.plan_resultados if p['estado'] != 'completado']
+                        tarea.pendientes_objetivo = list(dict.fromkeys(tarea.pendientes_objetivo+[p['solicitud'] for p in tarea.plan_resultados if p['estado'] != 'completado']))
                         texto = resumen_resultados(tarea) or 'No pude comprobar el resultado.'
                         if len(nuevos) < len(plan):
                             texto += ' Otros pasos del lote quedaron sin ejecutar.'
@@ -333,6 +352,7 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                             # La prosa libre nunca sustituye el resultado operativo.
                             texto = resumen_resultados(tarea) + (' '+texto if tipo == 'pregunta' else '')
                         tarea.cobertura_completa = decision.get('completa') is True
+                        tarea.pendientes_objetivo = decision.get('pendientes',[])
                         o._finalizar(tarea,texto,estado=estado_respuesta(tarea,decision))
                         return
                     texto = decision.get('texto','')
@@ -376,7 +396,9 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                     from modules.task_tools import huella
                     decisiones_rechazadas.add((huella(propuesta), len(resultados_turno(tarea))))
                     tarea.entidades['decision_rechazada'] = {
-                        'operaciones': [{'action': p.get('accion'), 'params': p.get('parametros')} for p in propuesta.get('pasos', []) if isinstance(p,dict)],
+                        'operaciones': [{'action': p.get('accion'), 'params': p.get('parametros'),
+                            **({'depends_on':p['depende_de']} if p.get('depende_de') else {})}
+                            for p in propuesta.get('pasos', []) if isinstance(p,dict)],
                         'motivo': str(error)[:500]}
                 if tarea.cotidiano_local:
                     from modules.agent_providers import guardar_salida_qwen
@@ -400,6 +422,7 @@ def contexto_acotado(contexto, limite):
               'dialogo','memorias','resultados','errores','raices','observadas','reproductor_elegido',
               'solicitud_completa','interlocutor','ahora','continuidad','referencias_aclaracion',
               'decision_rechazada','seleccion_pendiente'}
+    campos |= {'pendientes','plan_resultados'}
     c = deepcopy({k:v for k,v in contexto.items() if k in campos})
     c['dialogo'] = [{k:str(v)[:350 if c.get('interlocutor') else 700] for k,v in h.items()} for h in c.get('dialogo',[])[-6:]]
     c['memorias'] = c.get('memorias',[])[:2]
@@ -486,27 +509,52 @@ def esquema_local(herramientas, contratos=()):
         'required':['intent','operations','complete','response'],'additionalProperties':False}
 
 
+def dependencias_cumplidas(paso, registros):
+    """Solo recibos comprobados del lote habilitan los pasos dependientes."""
+    return all(registros[i]['estado'] == 'completado' for i in paso.get('depende_de',[]))
+
+
 def decision_local(d,tarea):
     """Adapta el contrato común al ejecutor existente; no interpreta frases."""
-    if not isinstance(d,dict) or set(d) != {'intent','operations','complete','response'} or type(d['complete']) is not bool or not isinstance(d['response'],str) or not isinstance(d['operations'],list):
+    campos_base = {'intent','operations','complete','response'}
+    if (not isinstance(d,dict) or not campos_base <= set(d) <= campos_base | ({'pending'} if tarea.conversacional else set())
+            or type(d['complete']) is not bool or not isinstance(d['response'],str) or not isinstance(d['operations'],list)):
         raise ValueError('Usa intent, operations, complete y response.')
+    pendientes = d.get('pending',[])
+    if (not isinstance(pendientes,list) or len(pendientes)>6
+            or any(not isinstance(p,str) or not p.strip() or len(p)>300 for p in pendientes)):
+        raise ValueError('pending necesita hasta seis objetivos pendientes breves.')
+    if tarea.conversacional and d['intent'] == 'command':
+        if d['complete'] and pendientes or not d['complete'] and not pendientes:
+            raise ValueError('complete=false requiere indicar en pending qué falta tras este lote; usa complete=true y pending=[] si lo cubre todo.')
     operaciones = d['operations']
     if d['intent'] == 'command':
         campos = {'action','params'}
-        if not 1 <= len(operaciones) <= 6 or any(not isinstance(p,dict) or set(p) != campos or not isinstance(p['action'],str) or not p['action'] or not isinstance(p['params'],dict) for p in operaciones):
+        if not 1 <= len(operaciones) <= 6 or any(not isinstance(p,dict) or not campos <= set(p) <= campos | ({'depends_on'} if tarea.conversacional else set()) or not isinstance(p['action'],str) or not p['action'] or not isinstance(p['params'],dict) for p in operaciones):
             raise ValueError('Cada operación necesita action y params del catálogo.')
+        for indice,p in enumerate(operaciones):
+            deps = p.get('depends_on',[])
+            if (not isinstance(deps,list) or any(type(i) is not int or not 0 <= i < indice for i in deps)
+                    or len(deps) != len(set(deps))):
+                raise ValueError('depends_on solo admite índices anteriores del mismo lote, empezando por 0, sin repeticiones.')
+            if (p['action'] == 'media_control' and not p['params'].get('player')
+                    and any(operaciones[i]['action'] in {'abrir_aplicacion','open_application'} for i in deps)):
+                raise ValueError('Indica player al controlar una aplicación que se abre en el mismo lote; no se hereda otro reproductor de la sesión.')
         if any(p['action'].startswith('especialista_') for p in operaciones):
+            if tarea.conversacional:
+                raise ValueError('Usa delegate con goal y reason para encargar solo el trabajo pendiente.')
             rol = operaciones[0]['action'].removeprefix('especialista_')
             if len(operaciones) != 1 or 'especialistas' not in tarea.capacidades or rol not in {'analisis','desarrollo','investigacion'}:
                 raise ValueError('Descubre el especialista antes de delegar una sola tarea.')
             return {'tipo':'delegar','rol':rol}
-        return {'tipo':'plan','finaliza':d['complete'],'pasos':[
-            {'accion':p['action'],'parametros':p['params'],'solicitud':tarea.objetivo} for p in operaciones]}
+        return {'tipo':'plan','finaliza':d['complete'],'pendientes':pendientes,'pasos':[
+            {'accion':p['action'],'parametros':p['params'],'solicitud':tarea.objetivo,
+             **({'depende_de':p['depends_on']} if p.get('depends_on') else {})} for p in operaciones]}
     if d['intent'] not in {'chat','clarify'} or operaciones:
         raise ValueError('Usa command para operaciones; chat o clarify llevan operations vacío.')
     pasos = resultados_turno(tarea)
     return {'tipo':'pregunta' if d['intent']=='clarify' else 'respuesta','texto':d['response'],
-            'evidencias':[i for i,h in enumerate(pasos) if h.get('resultado',{}).get('ok') and h['resultado'].get('verificado')], 'pendientes':[]}
+            'evidencias':[i for i,h in enumerate(pasos) if h.get('resultado',{}).get('ok') and h['resultado'].get('verificado')], 'pendientes':pendientes}
 
 
 def contexto_local(contexto):

@@ -46,7 +46,9 @@ def guardar_salida_qwen(config, tarea, etapa, **datos):
 
 
 class ErrorProveedor(RuntimeError):
-    pass
+    def __init__(self, mensaje, *, diagnostico=None):
+        super().__init__(mensaje)
+        self.diagnostico = diagnostico or {}
 
 
 class ErrorServidorLocal(ErrorProveedor):
@@ -177,7 +179,10 @@ def lineas_ollama(url, cuerpo, cancelar, timeout, lectura):
     import queue
     eventos = queue.Queue(maxsize=32)
     cerrado = threading.Event()
-    fin = time.monotonic()+timeout
+    inicio = time.monotonic()
+    fin = inicio+timeout
+    fase = 'cabeceras'
+    estado_http = None
 
     def emitir(tipo, valor):
         while not cerrado.is_set():
@@ -194,9 +199,11 @@ def lineas_ollama(url, cuerpo, cancelar, timeout, lectura):
                 return
             respuesta = requests.post(url,json=cuerpo,stream=True,
                 timeout=(min(5,timeout),min(lectura,timeout)))
+            emitir('cabeceras',respuesta.status_code)
             if respuesta.status_code >= 400:
                 log.warning('Ollama rechazó la inferencia: HTTP %s',respuesta.status_code)
-                raise ErrorServidorLocal('El servidor local no pudo generar la respuesta.')
+                raise ErrorServidorLocal('El servidor local no pudo generar la respuesta.',
+                    diagnostico={'fase':'cabeceras','http':respuesta.status_code,'codigo':'http_error'})
             for linea in respuesta.iter_lines(chunk_size=1):
                 if cerrado.is_set() or cancelar.is_set():
                     break
@@ -215,17 +222,28 @@ def lineas_ollama(url, cuerpo, cancelar, timeout, lectura):
             if cancelar.is_set():
                 raise Cancelado('Tarea cancelada.')
             if time.monotonic() >= fin:
-                raise ErrorProveedor('Ollama tardó demasiado.')
+                raise ErrorProveedor('Ollama tardó demasiado.',diagnostico={
+                    'fase':fase,'http':estado_http,'codigo':'presupuesto_agotado',
+                    'segundos':round(time.monotonic()-inicio,3)})
             try:
                 tipo,valor = eventos.get(timeout=min(0.05,max(0.001,fin-time.monotonic())))
             except queue.Empty:
                 continue
             if tipo == 'fin':
                 return
+            if tipo == 'cabeceras':
+                estado_http = valor
+                fase = 'primer_dato'
+                continue
             if tipo == 'error':
                 if isinstance(valor,requests.RequestException):
-                    raise ErrorServidorLocal('No pude obtener respuesta del servidor local.') from None
+                    raise ErrorServidorLocal('No pude obtener respuesta del servidor local.',diagnostico={
+                        'fase':fase,'http':estado_http,'codigo':type(valor).__name__,
+                        'segundos':round(time.monotonic()-inicio,3)}) from None
+                if isinstance(valor,ErrorProveedor):
+                    valor.diagnostico.setdefault('segundos',round(time.monotonic()-inicio,3))
                 raise valor
+            fase = 'generacion'
             yield valor
     finally:
         cerrado.set()
@@ -357,12 +375,17 @@ class ProveedorOllama:
         partes = []
         llamadas = []
         metricas = {}
+        inicio_inferencia = time.monotonic()
+        primer_token = None
         try:
             for linea in lineas:
                 if linea:
                     bloque = json.loads(linea)
                     if bloque.get("error"):
-                        raise ErrorServidorLocal("Ollama no pudo generar la respuesta.")
+                        raise ErrorServidorLocal("Ollama no pudo generar la respuesta.",diagnostico={
+                            'fase':'generacion','codigo':'error_en_stream'})
+                    if primer_token is None and bloque.get('message',{}).get('content'):
+                        primer_token = round(time.monotonic()-inicio_inferencia,3)
                     if local and bloque.get('done'):
                         # Ollama informa nanosegundos; conservar solo medidas técnicas,
                         # nunca el cuerpo del proveedor ni el contexto de la petición.
@@ -384,6 +407,7 @@ class ProveedorOllama:
             texto = "".join(partes)
             if local:
                 if metricas:
+                    metricas['primer_token_segundos'] = primer_token
                     guardar_salida_qwen(self.config,tarea,'tiempos_inferencia',modelo=modelo,
                                        papel='cotidiano' if getattr(tarea,'conversacional',False) else 'ejecutor',
                                        metricas=metricas)
@@ -403,6 +427,15 @@ class ProveedorOllama:
                 if local and getattr(tarea,'conversacional',False):
                     raise ValueError('Devuelve una decisión JSON válida con operaciones o respuesta.') from None
                 raise
+        except ErrorProveedor as error:
+            if local:
+                guardar_salida_qwen(self.config,tarea,'fallo_inferencia',modelo=modelo,
+                    clase=type(error).__name__,diagnostico=error.diagnostico,
+                    segundos=round(time.monotonic()-inicio_inferencia,3),
+                    primer_token_segundos=primer_token,caracteres_recibidos=sum(map(len,partes)),
+                    bytes_entrada=len(json.dumps(mensajes,ensure_ascii=False).encode()),
+                    bytes_esquema=len(json.dumps(formato,ensure_ascii=False).encode()) if not natural and not nativo else 0)
+            raise
         finally:
             lineas.close()
 

@@ -17,9 +17,10 @@ def texto(respuesta, intent='chat', complete=True):
     return {'intent':intent,'operations':[],'complete':complete,'response':respuesta}
 
 
-def lote(accion, parametros, complete=True):
+def lote(accion, parametros, complete=True, *, pendientes=None):
     return {'intent':'command','operations':[{'action':accion,'params':parametros}],
-            'complete':complete,'response':''}
+            'complete':complete,'response':'',
+            'pending':pendientes if pendientes is not None else [] if complete else ['Decidir con los resultados del paso solicitado']}
 
 
 def entrega(respuesta, complete=True):
@@ -275,3 +276,84 @@ class TestInterlocutor(unittest.TestCase):
             p=o.herramientas.capacidades.preparar(t,'mover_ventana',
                 {'aplicacion':'firefox','origen':'3','target':'2'},threading.Event())
         self.assertEqual(p,{'address':'0x1234563','target':'2'})
+
+    def test_reproduccion_autorizada_conserva_verify_hasta_el_envio(self):
+        enviados=[]
+        def reproducir(action:str,player:str|None=None,verify:bool=False):
+            enviados.append((action,player,verify))
+            return ResultadoComando('Reproducción comprobada.',ok=True,verificado=True)
+        self.ex.action_map['media_control']=reproducir
+        o=self.crear([lote('media_control',{'action':'play','player':'spotify'})])
+        with patch('modules.coherent_agent.compilar_rapida',return_value=None):
+            r=o.atender('Quiero seguir escuchando en Spotify')
+        self.assertEqual(enviados,[('play','spotify',True)])
+        self.assertTrue(r.ok)
+        self.assertEqual(len(self.interlocutor.consultas),1)
+
+    def test_dependencia_incierta_bloquea_el_segundo_efecto(self):
+        def incierto(level:int):
+            self.cambios.append(level)
+            return ResultadoComando('Solicitud enviada sin comprobar.',ok=True)
+        self.ex.action_map['set_volume']=incierto
+        d=lote('set_volume',{'level':20})
+        d['operations'].append({'action':'set_volume','params':{'level':30},'depends_on':[0]})
+        o=self.crear([d])
+        with patch('modules.coherent_agent.compilar_rapida',return_value=None):
+            r=o.atender('Ajusta a veinte y solo después a treinta')
+        self.assertEqual(self.cambios,[20])
+        self.assertEqual(o.almacen.cargar('local').plan_resultados[-1]['estado'],'bloqueado')
+        self.assertIsNone(r.ok)
+        self.assertIn('sin ejecutar',str(r))
+
+    def test_dependencia_comprobada_habilita_el_segundo_efecto(self):
+        d=lote('set_volume',{'level':20})
+        d['operations'].append({'action':'set_volume','params':{'level':30},'depends_on':[0]})
+        o=self.crear([d])
+        with patch('modules.coherent_agent.compilar_rapida',return_value=None):
+            r=o.atender('Ajusta a veinte y después a treinta')
+        self.assertEqual(self.cambios,[20,30])
+        self.assertTrue(r.ok)
+        self.assertEqual(len(self.interlocutor.consultas),1)
+
+    def test_cancelacion_durante_handler_conserva_el_efecto_comprobado(self):
+        o=self.crear([lote('set_volume',{'level':20})])
+        def ajustar(level:int):
+            self.cambios.append(level)
+            o.cancelar('local',motivo='movil_stop')
+            return ResultadoComando('Volumen comprobado.',ok=True,verificado=True)
+        self.ex.action_map['set_volume']=ajustar
+        with patch('modules.coherent_agent.compilar_rapida',return_value=None):
+            r=o.atender('Déjalo al veinte')
+        self.assertTrue(r.cancelada)
+        self.assertIn('Volumen comprobado',str(r))
+        self.assertTrue(r.acciones[0]['verificado'])
+        self.assertEqual(o.almacen.cargar('local').entidades['motivo_cancelacion'],'movil_stop')
+
+    def test_no_delega_la_peticion_entera_despues_de_un_resultado(self):
+        o=self.crear([lote('get_volume',{},False,pendientes=['Analizar el nivel consultado']),
+            {'intent':'delegate','role':'analisis','goal':'Revisa el volumen y analiza su nivel',
+             'reason':'Analizarlo','response':''},texto('El nivel consultado es treinta por ciento.')])
+        remoto=ProveedorFalso()
+        o.proveedores['analisis']=remoto
+        with patch('modules.coherent_agent.compilar_rapida',return_value=None):
+            o.atender('Revisa el volumen y analiza su nivel')
+        self.assertEqual(remoto.consultas,[])
+        self.assertIn('pendientes',self.interlocutor.consultas[-1][1]['decision_rechazada']['motivo']
+                      if 'decision_rechazada' in self.interlocutor.consultas[-1][1]
+                      else self.interlocutor.consultas[-1][1]['errores'][-1])
+
+    def test_complete_false_sin_pendientes_se_corrige_antes_de_efectos(self):
+        d=lote('set_volume',{'level':20},False,pendientes=[])
+        o=self.crear([d,lote('set_volume',{'level':20})])
+        with patch('modules.coherent_agent.compilar_rapida',return_value=None):
+            o.atender('Déjalo al veinte')
+        self.assertEqual(self.cambios,[20])
+        self.assertEqual(len(self.interlocutor.consultas),2)
+
+    def test_abrir_app_por_atajo_conserva_la_ruta_sin_modelo(self):
+        self.ex.action_map['open_application']=lambda app:ResultadoComando('Ventana abierta.',ok=True,verificado=True)
+        o=self.crear([])
+        with patch('commands.apps.AppCommands.disponibles',return_value={'spotify':['spotify-launcher']}):
+            r=o.atender('Abre Spotify')
+        self.assertTrue(r.ok)
+        self.assertEqual(self.interlocutor.consultas,[])

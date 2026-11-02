@@ -170,6 +170,7 @@ class Orquestador:
         self._lock = threading.RLock()
         self._activos = {}
         self._generaciones = {}
+        self._motivos_cancelacion = {}
         self._eventos = {}
         self._callbacks = {}
         self._anterior_sesion = None
@@ -206,10 +207,13 @@ class Orquestador:
             tarea.estado = "sustituida"
             self.almacen.guardar(tarea)
 
-    def cancelar(self, sesion="local"):
+    def cancelar(self, sesion="local", *, motivo="solicitud"):
         # No espera al TurnGate ni al hilo de inferencia.
+        if motivo not in {'solicitud','widget','interrupcion_voz','movil_stop','desconexion','cierre_flujo','apagado'}:
+            motivo = 'solicitud'
         with self._lock:
             self._generaciones[sesion] = self._generaciones.get(sesion, 0) + 1
+            self._motivos_cancelacion[sesion] = motivo
             if sesion in self._eventos:
                 self._eventos[sesion].set()
             activo = self._activos.get(sesion)
@@ -217,12 +221,17 @@ class Orquestador:
                 activo[0].set()
                 activo[2].pendiente = None
                 activo[2].estado = "cancelada"
-                return
+                activo[2].entidades['motivo_cancelacion'] = motivo
+        if activo:
+            self._trazar(activo[2],'cancelacion',motivo=motivo)
+            return
         tarea = self.almacen.cargar(sesion)
-        if tarea:
+        if tarea and tarea.estado in {'trabajando','aprobacion','aclaracion'}:
             tarea.pendiente = None
             tarea.estado = "cancelada"
+            tarea.entidades['motivo_cancelacion'] = motivo
             self.almacen.guardar(tarea)
+            self._trazar(tarea,'cancelacion',motivo=motivo)
 
     def generacion(self, sesion):
         with self._lock:
@@ -315,6 +324,7 @@ class Orquestador:
             self._eventos[sesion] = evento
             if generacion != self._generaciones.get(sesion, 0):
                 evento.set()
+                tarea.entidades['motivo_cancelacion'] = self._motivos_cancelacion.get(sesion,'solicitud')
         self.executor.cancel_pending()
         if getattr(self.config,'AGENT_MODE','legacy') == 'conversacional' and tarea.rol == 'cotidiano':
             tarea.entidades.setdefault('modelo_cotidiano',self.config.AGENT_CONVERSATION_MODEL)
@@ -465,7 +475,10 @@ class Orquestador:
             self._comprobar(tarea)
         except Cancelado:
             tarea.estado, tarea.pendiente = "cancelada", None
-            tarea.respuesta = "Tarea cancelada."
+            from modules.coherent_agent import resumen_resultados
+            hechos = resumen_resultados(tarea,incluir_consultas=False)
+            tarea.respuesta = hechos+' Se detuvo el trabajo restante.' if hechos else 'Tarea cancelada.'
+            self._trazar(tarea,'cancelada',motivo=tarea.entidades.get('motivo_cancelacion','generacion_o_evento'))
         except (ErrorProveedor, ValueError, OSError, TypeError) as error:
             tarea.estado, tarea.pendiente = "error", None
             tarea.respuesta = str(error) if isinstance(error, (ErrorProveedor, ValueError)) else "No pude completar la tarea ahora."
@@ -610,6 +623,7 @@ class Orquestador:
     def _autorizar_operacion(self, tarea, accion, parametros):
         from modules.task_tools import huella_autorizacion
         from modules.grounding import check
+        parametros = self.herramientas.normalizar_parametros(accion,parametros,tarea=tarea)
         if not isinstance(parametros,dict) or accion not in self.herramientas.catalogo(tarea):
             raise ValueError("La capacidad no está disponible para este objetivo.")
         if getattr(tarea, "cotidiano_local", False):
@@ -889,7 +903,7 @@ class Orquestador:
 
     def _confirmar_lote(self, tarea):
         """Revalidar la propuesta completa y conservar recibos ante fallo parcial."""
-        from modules.coherent_agent import resumen_resultados
+        from modules.coherent_agent import resumen_resultados, dependencias_cumplidas
         from modules.general_agent import resultados_turno
         pendiente = tarea.pendiente
         tarea.pendiente = None
@@ -908,20 +922,27 @@ class Orquestador:
                     raise ValueError('El script o los datos cambiaron desde la propuesta; vuelve a probarlos.')
         for paso in plan:
             self._autorizar_operacion(tarea,paso['accion'],paso['parametros'])
-            self.herramientas.validar(tarea,paso['accion'],paso['parametros'])
+            if self.herramientas.validar(tarea,paso['accion'],paso['parametros']) != paso['parametros']:
+                raise ValueError('Los parámetros del lote cambiaron; hay que revisar la propuesta.')
         tarea.estado = 'trabajando'
-        for paso in plan:
+        registros = [next((p for p in tarea.plan_resultados if p['estado']=='pendiente'
+                and p['accion']==paso['accion'] and p['parametros']==paso['parametros']),None)
+                for paso in plan]
+        if any(r is None for r in registros):
+            raise ValueError('Falta el registro del lote aprobado; revisa la propuesta de nuevo.')
+        for paso,registro in zip(plan,registros):
+            if not dependencias_cumplidas(paso,registros):
+                registro['estado'] = 'bloqueado'
+                continue
             self._ejecutar(tarea,paso['accion'],paso['parametros'],aprobado=True)
             h = resultados_turno(tarea)[-1]
             r = h.get('resultado',{})
-            registro = next((p for p in tarea.plan_resultados if p['estado']=='pendiente'
-                and p['accion']==paso['accion'] and p['parametros']==paso['parametros']),None)
             if registro is not None:
                 registro['estado'] = 'completado' if r.get('ok') and r.get('verificado') else 'fallido' if h.get('error') or r.get('ok') is False else 'sin_verificar'
                 registro['recibo'] = len(resultados_turno(tarea))-1
             if h.get('error') or r.get('ok') is False:
                 break
-        tarea.pendientes_objetivo = [p['solicitud'] for p in tarea.plan_resultados if p['estado']!='completado']
+        tarea.pendientes_objetivo = list(dict.fromkeys(tarea.pendientes_objetivo+[p['solicitud'] for p in tarea.plan_resultados if p['estado']!='completado']))
         texto = resumen_resultados(tarea) or 'No pude comprobar el resultado.'
         if tarea.pendientes_objetivo:
             texto += ' Quedan pasos pendientes o sin verificar.'
@@ -932,17 +953,15 @@ class Orquestador:
         inicio_herramienta = time.monotonic()
         evento, _ = self._comprobar(tarea)
         try:
-            parametros = self.herramientas.normalizar_parametros(accion,parametros)
+            parametros = self.herramientas.normalizar_parametros(accion,parametros,tarea=tarea)
             if getattr(tarea, 'conversacional', False):
                 parametros = self.herramientas.capacidades.preparar(tarea,accion,parametros,evento)
             if tarea.semantica and not aprobado:
                 self._autorizar_operacion(tarea,accion,parametros)
-            parametros_originales = parametros
-            parametros = self.herramientas.validar(tarea, accion, parametros)
-            if tarea.semantica:
-                from modules.task_tools import huella_autorizacion
-                if tarea.autorizaciones_semanticas.get(huella_autorizacion(tarea,accion,parametros_originales)):
-                    tarea.autorizaciones_semanticas[huella_autorizacion(tarea,accion,parametros)] = True
+            validados = self.herramientas.validar(tarea, accion, parametros)
+            if validados != parametros:
+                raise ValueError('Los parámetros cambiaron después de autorizar; hay que preparar de nuevo la operación.')
+            parametros = validados
             # El identificador no cambia al continuar: un reinicio no repite efectos.
             clave = huella({"accion": accion, "parametros": parametros, **({"revision": tarea.revision} if tarea.plan_operativo or tarea.semantica else {})})
             if getattr(tarea,"cotidiano_local",False) and accion in {"media_control","spotify_control"}:
