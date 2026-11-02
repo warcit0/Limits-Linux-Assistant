@@ -51,7 +51,7 @@ class Tarea:
     coherente: bool = False
     cotidiano_local: bool = False
     conversacional: bool = False
-    encargo: str = ""
+    encargo: str = ""  # Compatibilidad de estados históricos; el ciclo cotidiano no lo utiliza.
     semantica: bool = False
     autorizaciones_semanticas: dict = field(default_factory=dict)
     limitacion_rechazada: bool = False

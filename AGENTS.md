@@ -565,3 +565,42 @@ main.run_pipeline(user_input)
   requiere instalar el APK compilado; no afirmar que el móvil fue actualizado por editarlo.
 - NO ejecutar tests, probes ni inferencias de aceptación. Solo sintaxis/revisión
   estática y estado/arranque; el usuario comprueba libremente por voz.
+
+
+## 15. Asistente cotidiano único (vigente, 2026-11-01)
+
+Esta sección sustituye el recorrido cotidiano de la sección 14; aquella describe
+la evolución histórica. Plan/task: docs/plan-mejora-8-agente-unico.md y
+docs/tasks/mejora-8-agente-unico.md.
+
+- AGENT_MODE=conversacional usa AGENT_CONVERSATION_MODEL como único modelo cotidiano,
+  fijado por turno. No hay task/goal, segundo ejecutor local ni fase de presentación.
+  OLLAMA_MODEL permanece para local/legacy. No cambiar pesos/modelos al depurar el ciclo.
+- Un mismo ciclo en coherent_agent recibe command/chat/clarify/delegate. Consultas
+  y lotes complete=false vuelven al mismo modelo con la petición original y recibos.
+  complete=true entrega recibos directamente; no equivale a comprensión infalible.
+- Atajos completos existentes habilitados, mismo contrato y ejecutor. Un atajo
+  parcial o no disponible no ejecuta efectos antes de consultar al modelo.
+- Catálogo, contratos técnicos, política por capacidad, rutas/direcciones observadas,
+  aprobación sensible y sandbox vigentes. Sin juez de intención ni citas del modelo.
+- Lotes sensibles propuestos antes de cualquier efecto. Confirmar revalida revisión,
+  plazo, hash del lote y datos/scripts; fallo para el lote y conserva efectos anteriores.
+  Propuesta mixta adjunta documento privado para revisar operaciones exactas.
+- Cierre conversacional separado mediante tipo_cierre; texto sin recibos no acredita
+  una operación. Una orden clasificada como chat inicialmente aún puede ser un error
+  semántico del modelo: no afirmar que Python detecta toda mentira en prosa.
+- AGENT_MAX_DECISIONS=6 y AGENT_EVERYDAY_TIMEOUT=30 como defaults; herramientas usan
+  AGENT_MAX_STEPS. Presupuesto monótono, sin multiplicar por fases; especialistas
+  conservan AGENT_TIMEOUT. Un handler ya iniciado puede rebasar el plazo del turno
+  hasta su timeout propio: no lanzar otro hilo que deje efectos ejecutándose al liberar lock.
+- Ollama lee HTTP en hilo sin herramientas; consumidor cancelable incluso esperando
+  primer byte, sin aceptar salidas tardías. Socket lector puede cerrar al vencer su
+  timeout; no garantiza que el servidor remoto/local cancele inmediatamente el cómputo.
+- Aviso único «Estoy con ello» tras 2,5 s de espera; misma cola FlujoVoz y un micrófono,
+  con temporizador unido/cancelado al entregar y en finally. Gemini conserva progresión
+  y aislamiento informativo. No leer JSON parcial ni afirmar efectos como progreso.
+- Referencias tras aclaración son datos antiguos, no alcance ni permisos vigentes.
+  Campo encargo solo conservado para leer estados históricos. Memoria personal intacta.
+- NO ejecutar tests/probes/inferencias de aceptación. Solo revisión estática/sintaxis
+  y arranque. Los escenarios con dobles se preparan sin ejecutarlos; voz y latencia
+  pendientes del uso libre del usuario. APK previo aún requiere instalación en móvil.

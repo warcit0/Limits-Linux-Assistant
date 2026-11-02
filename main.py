@@ -66,7 +66,7 @@ def print_banner(config: Config):
     voz = f"piper + ElevenLabs({config.ELEVENLABS_MODE})" if eleven_on else "piper"
     llm_label = f"{config.OLLAMA_MODEL} (local)"
     if getattr(config,'AGENT_MODE','legacy') == 'conversacional':
-        llm_label = f"conversación {config.AGENT_CONVERSATION_MODEL} · ejecución {config.OLLAMA_MODEL} (locales)"
+        llm_label = f"asistente cotidiano {config.AGENT_CONVERSATION_MODEL} (local)"
     console.print(Panel.fit(
         f"[bold cyan]🤖 Limits LINUX[/bold cyan] [dim]{__version__} ({STATUS})[/dim]\n"
         f"[dim]LLM: {llm_label}[/dim]\n"
@@ -139,8 +139,17 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
         inicio_turno = time.monotonic()
         turno_id = uuid.uuid4().hex
         primer_texto = False
+        aviso_espera = None
+        fin_aviso = threading.Event()
+        bloqueo_progreso = threading.RLock()
 
         def progreso(evento):
+            with bloqueo_progreso:
+                if evento.get('type') == 'espera' and fin_aviso.is_set():
+                    return
+                _progreso(evento)
+
+        def _progreso(evento):
             nonlocal flujo, frases, primer_texto
             if presencia and evento.get("type") == "status":
                 presencia.fase("investigando")
@@ -156,13 +165,13 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
             if evento.get("type") == "final":
                 log.info("turno=%s fin_gemini_s=%.3f", turno_id, time.monotonic()-inicio_turno)
             voz = progress_voice if progress_voice is not None else tts if speak else None
-            if flujo is None and evento.get("type") in {"status", "delta"} and getattr(type(voz), "_listen", None) is not None:
+            if flujo is None and evento.get("type") in {"status", "delta", "espera"} and getattr(type(voz), "_listen", None) is not None:
                 terminar_escucha()
                 flujo = FlujoVoz(voz, lambda: orchestrator.cancelar(session_id), vigente)
                 frases = FrasesProgresivas(flujo.decir)
                 if on_progress:
                     on_progress({"type":"audio","state":"started"})
-                flujo.decir("Voy investigando. Te contaré avances provisionales mientras contrasto las fuentes.", tipo="estado")
+                flujo.decir("Estoy con ello." if evento.get("type") == "espera" else "Voy investigando. Te contaré avances provisionales mientras contrasto las fuentes.", tipo="estado")
                 log.info("turno=%s primer_estado_s=%.3f", turno_id, time.monotonic() - inicio_turno)
             if flujo is not None and frases is None:
                 frases = FrasesProgresivas(flujo.decir)
@@ -177,12 +186,19 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                 tts.finalizar_espera()
                 escucha_activa = False
 
+        def cerrar_aviso():
+            fin_aviso.set()
+            if aviso_espera is not None:
+                aviso_espera.cancel()
+                aviso_espera.join()
+
         def entregar(texto: str) -> str:
             nonlocal response_text, flujo_cerrado, final_visual
             if detenido_visual.is_set():
                 from modules.task_state import RespuestaTurno
                 texto = RespuestaTurno("Tarea cancelada.")
                 texto.cancelada = True
+            cerrar_aviso()
             pendiente_visual = getattr(executor, "_pending_action", None)
             if presencia and orchestrator is not None:
                 tarea_visual = orchestrator.almacen.cargar(session_id)
@@ -278,6 +294,17 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
                     if voz_espera is tts and getattr(type(tts),'iniciar_espera',None) is not None:
                         tts.iniciar_espera(lambda:orchestrator.cancelar(session_id))
                         escucha_activa = True
+                    if getattr(orchestrator.config,'AGENT_MODE','legacy') == 'conversacional' and voz_espera is not None:
+                        def avisar_espera():
+                            if fin_aviso.is_set() or detenido_visual.is_set():
+                                return
+                            try:
+                                progreso({'type':'espera'})
+                            except Exception:
+                                log.debug('No se pudo emitir el aviso de espera',exc_info=True)
+                        aviso_espera = threading.Timer(2.5,avisar_espera)
+                        aviso_espera.daemon = True
+                        aviso_espera.start()
                     response_text = orchestrator.atender(user_input, sesion=session_id,
                         generacion=turn_generation, on_event=progreso)
                     intent = "agent"
@@ -467,6 +494,7 @@ def make_pipeline(llm: LLMEngine, executor: CommandExecutor,
             log.debug(f"RESPONSE: {response_text}")
             return entregar(response_text)
         finally:
+            cerrar_aviso()
             if flujo is not None and not flujo_cerrado:
                 orchestrator.cancelar(session_id)
                 flujo.cerrar()

@@ -68,17 +68,27 @@ class TestInterlocutor(unittest.TestCase):
         self.assertFalse(self.ejecutor.consultas)
         self.assertEqual(len(self.interlocutor.consultas),1)
 
-    def test_encargo_sin_voz_inventada_antes_de_ejecutar(self):
-        ejecutor=ProveedorFalso(lote('set_volume',{'level':20}))
-        o=self.crear([{'intent':'task','goal':'Bajar el volumen al 20 %.','response':'Voy a ajustarlo.'},
-                      entrega('Ya está al 20 %.')],ejecutor)
+    def test_consultar_y_actuar_usa_el_mismo_asistente(self):
+        o=self.crear([lote('get_volume',{},False),lote('set_volume',{'level':20})])
         eventos=[]
-        r=o.atender('Déjalo al veinte',on_event=eventos.append)
+        r=o.atender('Consulta el volumen y déjalo al veinte',on_event=eventos.append)
         self.assertEqual(self.cambios,[20])
-        self.assertEqual(len(ejecutor.consultas),1)
-        self.assertEqual(ejecutor.consultas[0][1]['encargo'],'Bajar el volumen al 20 %.')
+        self.assertEqual(len(self.interlocutor.consultas),2)
+        self.assertEqual(self.ejecutor.consultas,[])
+        c=self.interlocutor.consultas[-1][1]
+        self.assertEqual(c['entrada'],'Consulta el volumen y déjalo al veinte')
+        self.assertEqual(c['resultados'][0]['herramienta'],'get_volume')
+        self.assertNotIn('encargo',c)
         self.assertEqual(eventos,[])
         self.assertTrue(r.ok)
+
+    def test_encargo_antiguo_no_activa_un_segundo_ejecutor(self):
+        o=self.crear([{'intent':'task','goal':'Cambiar volumen','response':''},
+                      lote('set_volume',{'level':20})])
+        o.atender('Déjalo al veinte')
+        self.assertFalse(self.ejecutor.consultas)
+        self.assertEqual(len(self.interlocutor.consultas),2)
+        self.assertEqual(self.cambios,[20])
 
     def test_respuesta_corta_conserva_pregunta_y_dialogo(self):
         o=self.crear([texto('¿Prefieres trabajar con música o en silencio?','clarify',False),
@@ -124,12 +134,41 @@ class TestInterlocutor(unittest.TestCase):
         self.assertNotIn('Quedan partes',str(r))
         self.assertTrue(r.ok)
 
-    def test_efecto_directo_incompleto_tambien_entrega_sin_replanificar(self):
+    def test_efecto_no_final_continua_con_el_mismo_modelo(self):
         o=self.crear([lote('set_volume',{'level':20},False),
-                      entrega('Volumen ajustado y comprobado.')])
-        o.atender('Baja al veinte')
+                      texto('Volumen ajustado y comprobado.')])
+        r=o.atender('Baja al veinte')
         self.assertEqual(self.cambios,[20])
-        self.assertEqual(len(self.interlocutor.consultas),1)
+        self.assertEqual(len(self.interlocutor.consultas),2)
+        self.assertFalse(self.ejecutor.consultas)
+        self.assertEqual(str(r),'Volumen comprobado.')
+
+    def test_atajo_completo_no_necesita_inferencia(self):
+        o=self.crear([])
+        r=o.atender('qué hora es')
+        self.assertEqual(len(self.interlocutor.consultas),0)
+        self.assertIn('doce',str(r))
+
+    def test_lote_sensible_no_adelanta_efectos(self):
+        decision={'intent':'command','operations':[
+            {'action':'set_volume','params':{'level':20}},
+            {'action':'shutdown','params':{}}],'complete':True,'response':''}
+        o=self.crear([lote('consultar_capacidades',{'categoria':'sistema'},False),decision])
+        r=o.atender('Baja al veinte y apaga el equipo')
+        self.assertIn('confirmar',str(r))
+        self.assertEqual(self.cambios,[])
+        self.assertEqual(self.ex.apagados,0)
+        t=o.almacen.cargar('local')
+        self.assertEqual(len(t.pendiente['lote']),2)
+        o.atender('confirmo')
+        self.assertEqual(self.cambios,[20])
+        self.assertEqual(self.ex.apagados,1)
+
+    def test_chat_inicial_no_se_registra_como_operacion(self):
+        o=self.crear([texto('He cambiado de espacio.')])
+        r=o.atender('Llévame al siguiente entorno')
+        self.assertEqual(r.tipo_cierre,'conversacion')
+        self.assertEqual(r.acciones,[])
 
     def test_dictado_ambiguo_no_exige_copiar_el_texto(self):
         d=lote('set_volume',{'level':20})

@@ -116,8 +116,8 @@ class Orquestador:
         self.config = config
         log.info("coordinacion modo=%s cotidiano=%s modelo_local=%s",
                  getattr(config,"AGENT_MODE","legacy"),
-                 "ollama" if getattr(config,"AGENT_MODE","legacy") == "local" else config.AGENT_COGNITIVE_PROVIDER,
-                 config.OLLAMA_MODEL)
+                 "ollama" if getattr(config,"AGENT_MODE","legacy") in {"local","conversacional"} else config.AGENT_COGNITIVE_PROVIDER,
+                 config.AGENT_CONVERSATION_MODEL if getattr(config,"AGENT_MODE","legacy") == "conversacional" else config.OLLAMA_MODEL)
         self._local = ProveedorOllama(config)
         self.executor = executor
         self.gemini = gemini
@@ -157,7 +157,6 @@ class Orquestador:
         self.prompt_worker = (PROMPTS / "agent_worker.txt").read_text()
         self.prompt_chat = (PROMPTS / "agent_chat.txt").read_text()
         self.prompt_conversacion = (PROMPTS / "agent_conversation.txt").read_text()
-        self.prompt_ejecutor = (PROMPTS / "agent_executor.txt").read_text()
         self.prompt_local = (PROMPTS / "agent_local.txt").read_text()
         self.semantico = bool(getattr(config, "AGENT_SEMANTIC", False))
         if self.semantico:
@@ -250,7 +249,9 @@ class Orquestador:
     def _consultar(self, tarea, prompt, contexto, rol=None):
         evento, restante = self._comprobar(tarea)
         rol = rol or tarea.rol
-        if tarea.semantica and tarea.escalado and "herramientas" in contexto and rol == "cotidiano":
+        if tarea.conversacional and rol in {'cotidiano','conversacion'}:
+            rol = tarea.entidades.get('proveedor_cotidiano','conversacion')
+        if not tarea.conversacional and tarea.semantica and tarea.escalado and "herramientas" in contexto and rol == "cotidiano":
             rol = "analisis"
         if rol not in self.proveedores:
             raise ErrorProveedor("El especialista solicitado no está disponible.")
@@ -266,7 +267,7 @@ class Orquestador:
             log.warning("proveedor falló: %s", type(error).__name__)
             raise ErrorProveedor("No pude consultar al especialista ahora.") from None
         self._comprobar(tarea)
-        self._trazar(tarea,"inferencia",rol=rol,segundos=round(time.monotonic()-inicio,3),proveedor=self.config.AGENT_CONVERSATION_MODEL if rol=='conversacion' else getattr(proveedor,"modelo",type(proveedor).__name__))
+        self._trazar(tarea,"inferencia",rol=rol,segundos=round(time.monotonic()-inicio,3),proveedor=tarea.entidades.get('modelo_cotidiano') if tarea.conversacional and rol in {'conversacion','cotidiano'} else getattr(proveedor,"modelo",type(proveedor).__name__))
         log.info("modelo rol=%s segundos=%.3f", rol, time.monotonic() - inicio)
         if not isinstance(resultado, dict):
             raise ErrorProveedor("El modelo devolvió una decisión inválida.")
@@ -315,8 +316,16 @@ class Orquestador:
             if generacion != self._generaciones.get(sesion, 0):
                 evento.set()
         self.executor.cancel_pending()
+        if getattr(self.config,'AGENT_MODE','legacy') == 'conversacional' and tarea.rol == 'cotidiano':
+            tarea.entidades.setdefault('modelo_cotidiano',self.config.AGENT_CONVERSATION_MODEL)
+            tarea.entidades.setdefault('proveedor_cotidiano','conversacion')
+            with self._lock:
+                self._activos[sesion] = (evento, time.monotonic() + min(self.config.AGENT_TIMEOUT,
+                    getattr(self.config,'AGENT_EVERYDAY_TIMEOUT',30)), tarea)
         try:
-            if intent == "confirmar":
+            if intent == "confirmar" and tarea.pendiente.get('lote'):
+                self._confirmar_lote(tarea)
+            elif intent == "confirmar":
                 pendiente = tarea.pendiente
                 tarea.pendiente = None
                 if pendiente["revision"] != tarea.revision or pendiente["tarea"] != tarea.id or (
@@ -851,6 +860,73 @@ class Orquestador:
                     self._finalizar(tarea, final[0], estado="terminada")
         return {"pasos": estado["pasos"] + pasos, "terminado": tarea.estado != "trabajando"}
 
+    def _proponer_lote(self, tarea, plan, sensibles):
+        """Preparar todas las aprobaciones antes de cualquier efecto del lote."""
+        propuestas, textos = [], []
+        for paso in sensibles:
+            self._ejecutar(tarea,paso['accion'],paso['parametros'])
+            if tarea.estado != 'aprobacion' or not tarea.pendiente:
+                raise ValueError('No pude preparar la aprobación del lote sin ejecutarlo.')
+            propuestas.append(copy.deepcopy(tarea.pendiente))
+            textos.append(tarea.respuesta.split('Di «confirmar»')[0].strip())
+            tarea.estado = 'trabajando'
+        pendiente = copy.deepcopy(propuestas[0])
+        pendiente['lote'] = copy.deepcopy(plan)
+        pendiente['propuestas'] = propuestas
+        pendiente['huella_lote'] = huella(plan)
+        tarea.pendiente = pendiente
+        otros = [p for p in plan if p not in sensibles]
+        detalle = ''
+        if otros:
+            from modules.memory import redact
+            archivo = self.almacen.carpeta(tarea) / 'propuesta-lote.md'
+            archivo.write_text('# Propuesta completa del lote\n\nPetición: '+redact(tarea.objetivo)
+                +'\n\n```json\n'+redact(json.dumps(plan,ensure_ascii=False,indent=2))+'\n```\n',encoding='utf-8')
+            archivo.chmod(0o600)
+            tarea.artefactos.append(str(archivo))
+            detalle = f' El lote incluye además {len(otros)} operaciones. Puedes revisar la propuesta completa adjunta antes de confirmar.'
+        self._finalizar(tarea,' '.join(textos)+detalle+' Di «confirmar» para aplicar este lote o «cancelar».',estado='aprobacion')
+
+    def _confirmar_lote(self, tarea):
+        """Revalidar la propuesta completa y conservar recibos ante fallo parcial."""
+        from modules.coherent_agent import resumen_resultados
+        from modules.general_agent import resultados_turno
+        pendiente = tarea.pendiente
+        tarea.pendiente = None
+        plan = pendiente['lote']
+        if huella(plan) != pendiente['huella_lote']:
+            raise ValueError('El lote cambió desde la propuesta; hay que revisarlo de nuevo.')
+        for propuesta in pendiente['propuestas']:
+            if (propuesta['tarea'] != tarea.id or propuesta['revision'] != tarea.revision
+                    or time.time()-propuesta['creado'] > self.config.AGENT_APPROVAL_TTL):
+                raise ValueError('La aprobación caducó; revisa de nuevo la propuesta.')
+            if propuesta['accion'] == 'aplicar_script':
+                script = self.herramientas._script(tarea,propuesta['parametros']['script'])
+                raiz = self.herramientas.validar_ruta(tarea,propuesta['parametros']['ruta'])
+                actual = huella({'script':huella(script.read_bytes()),'raiz':str(raiz),'datos':self.herramientas.inventario(raiz)})
+                if actual != propuesta.get('huella'):
+                    raise ValueError('El script o los datos cambiaron desde la propuesta; vuelve a probarlos.')
+        for paso in plan:
+            self._autorizar_operacion(tarea,paso['accion'],paso['parametros'])
+            self.herramientas.validar(tarea,paso['accion'],paso['parametros'])
+        tarea.estado = 'trabajando'
+        for paso in plan:
+            self._ejecutar(tarea,paso['accion'],paso['parametros'],aprobado=True)
+            h = resultados_turno(tarea)[-1]
+            r = h.get('resultado',{})
+            registro = next((p for p in tarea.plan_resultados if p['estado']=='pendiente'
+                and p['accion']==paso['accion'] and p['parametros']==paso['parametros']),None)
+            if registro is not None:
+                registro['estado'] = 'completado' if r.get('ok') and r.get('verificado') else 'fallido' if h.get('error') or r.get('ok') is False else 'sin_verificar'
+                registro['recibo'] = len(resultados_turno(tarea))-1
+            if h.get('error') or r.get('ok') is False:
+                break
+        tarea.pendientes_objetivo = [p['solicitud'] for p in tarea.plan_resultados if p['estado']!='completado']
+        texto = resumen_resultados(tarea) or 'No pude comprobar el resultado.'
+        if tarea.pendientes_objetivo:
+            texto += ' Quedan pasos pendientes o sin verificar.'
+        self._finalizar(tarea,texto,estado='terminada' if tarea.cobertura_completa and not tarea.pendientes_objetivo else 'parcial')
+
     def _ejecutar(self, tarea, accion, parametros, *, aprobado=False):
         from modules.local_permissions import requiere_confirmacion
         inicio_herramienta = time.monotonic()
@@ -1027,6 +1103,7 @@ class Orquestador:
             texto = completo
         respuesta = RespuestaTurno(texto, fuente="gemini" if tarea.rol == "investigacion" else "system",
                                   completo=completo, artefactos=artefactos)
+        respuesta.tipo_cierre = tarea.entidades.get("tipo_cierre","informacion" if tarea.rol == "investigacion" else "operacion")
         respuesta.cancelada = tarea.estado == "cancelada"
         respuesta.ok = True if tarea.estado == "terminada" else False if tarea.estado in {"error", "interrumpida", "cancelada", "no_disponible"} else None
         inicio = max((i for i,h in enumerate(tarea.historial) if "usuario" in h), default=0)

@@ -72,6 +72,8 @@ class Config:
     AGENT_OPENCODE_BIN: str = os.getenv("AGENT_OPENCODE_BIN", "opencode")
     AGENT_DEVELOPMENT_MODEL: str = os.getenv("AGENT_DEVELOPMENT_MODEL", "opencode/deepseek-v4.1-flash-free")
     AGENT_ANALYSIS_MODEL: str = os.getenv("AGENT_ANALYSIS_MODEL", "opencode/big-pickle")
+    AGENT_MAX_DECISIONS: int = max(1, min(20, int(os.getenv("AGENT_MAX_DECISIONS", "6"))))
+    AGENT_EVERYDAY_TIMEOUT: float = max(5, min(120, float(os.getenv("AGENT_EVERYDAY_TIMEOUT", "30"))))
     AGENT_MAX_STEPS: int = max(1, min(20, int(os.getenv("AGENT_MAX_STEPS", "6"))))
     AGENT_TIMEOUT: float = max(5, min(600, float(os.getenv("AGENT_TIMEOUT", "120"))))
     AGENT_CONTEXT_CHARS: int = max(2000, min(24000, int(os.getenv("AGENT_CONTEXT_CHARS", "12000"))))

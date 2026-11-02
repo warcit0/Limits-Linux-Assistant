@@ -51,6 +51,7 @@ class TestContratosSemanticos(unittest.TestCase):
     def test_ollama_llamadas_nativas_se_convierten_en_decisiones(self):
         c = Config()
         r = mock.Mock()
+        r.status_code = 200
         r.iter_lines.return_value = [
             json.dumps(
                 {

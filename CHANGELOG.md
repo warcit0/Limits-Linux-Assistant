@@ -6,6 +6,12 @@ cambios rompientes en cualquier release.
 
 ## [Unreleased]
 
+- Mejora 8: un único Qwen cotidiano conversa y utiliza herramientas, sin encargos a
+  otro modelo ni narrador de cierre. Atajos completos restaurados, continuación tras
+  observaciones/efectos y cierre por recibos. Límites de decisiones/plazo, cancelación
+  durante espera HTTP, aprobación de lote previa a efectos y aviso factual de espera.
+  Revisión estática; no se ejecutaron pruebas ni se valida comprensión por voz.
+
 - Simplificación conversacional: sin citas literales obligatorias ni voz de
   intención; efectos directos comunican sus recibos sin inferencia de cierre.
   Contexto compacto y texto progresivo antes del fin de audio. Cierre WS por turno

@@ -440,6 +440,7 @@ class TestConversacionNatural(BaseObjetivos):
     def test_conversacion_no_se_convierte_en_llamada_a_herramientas(self):
         from modules.agent_providers import ProveedorOllama
         remoto=mock.Mock()
+        remoto.status_code=200
         texto='{"tipo":"herramienta","accion":"shutdown","parametros":{}}'
         remoto.iter_lines.return_value=[json.dumps({'message':{'content':texto}}).encode()]
         with mock.patch('modules.agent_providers.requests.post',return_value=remoto) as peticion:

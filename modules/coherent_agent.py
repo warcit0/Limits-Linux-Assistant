@@ -5,7 +5,7 @@ import time
 
 from modules.agent_providers import ErrorProveedor, ErrorServidorLocal
 from modules.general_agent import resultados_turno
-from modules.task_tools import ACCIONES, LECTURAS, extraer_raices
+from modules.task_tools import ACCIONES, LECTURAS, SENSIBLES, extraer_raices
 
 PROMPT = """Eres Limits. Atiende la petición COMPLETA con las capacidades reales.
 Devuelve un plan de hasta cuatro pasos independientes o una respuesta/pregunta.
@@ -143,10 +143,16 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
     referente = getattr(o,'_reproductores_sesion',{}).get(tarea.sesion)
     if referente and time.monotonic()-referente[1] < 300 and referente[2] == o.generacion(tarea.sesion):
         tarea.entidades['reproductor_elegido'] = referente[0]
+    if tarea.conversacional and anterior and anterior.estado == 'aclaracion':
+        tarea.entidades['referencias_aclaracion'] = [
+            {'herramienta':h['herramienta'],'resultado':h.get('resultado',{})}
+            for h in resultados_turno(anterior)[-3:] if h.get('resultado',{}).get('verificado')]
     tarea.historial.append({'usuario':entrada})
     tarea.objetivos = [entrada]
-    directa = compilar_rapida(entrada,archivos=o.executor.files) if tarea.cotidiano_local and not tarea.conversacional else None
+    directa = compilar_rapida(entrada,archivos=o.executor.files) if tarea.cotidiano_local else None
     if directa and directa['operations'] and directa['operations'][0]['action'] == 'spotify_play' and getattr(o.config,'SPOTIFY_MCP_ENABLED',False):
+        directa = None
+    if directa and any(p['action'] not in o.herramientas.catalogo(tarea) for p in directa['operations']):
         directa = None
     if directa and directa['operations']:
         tarea.entidades['orden_rapida'] = directa['operations'][0]
@@ -164,10 +170,9 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
     errores = 0
     delegado = False
     inicio = time.monotonic()
-    fase = 'conversacion' if tarea.conversacional else 'ejecucion'
     try:
-        # Las transiciones de rol no consumen el presupuesto de herramientas.
-        for _ in range(o.config.AGENT_MAX_STEPS * (3 if tarea.conversacional else 1)):
+        limite_decisiones = getattr(o.config,'AGENT_MAX_DECISIONS',6) if tarea.conversacional else o.config.AGENT_MAX_STEPS
+        for _ in range(limite_decisiones):
             try:
                 o._comprobar(tarea)
                 pasos = resultados_turno(tarea)
@@ -180,26 +185,13 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                     'memorias':tarea.memorias[:3], 'reproductor_elegido':tarea.entidades.get('reproductor_elegido'),
                     'resultados':[{'id':i,**h} for i,h in enumerate(pasos)],
                     'pendientes':tarea.pendientes_objetivo,'plan_resultados':tarea.plan_resultados,'errores':tarea.errores_plan[-2:]}
-                prompt = o.prompt_ejecutor if local and tarea.conversacional else o.prompt_local if local else PROMPT
+                prompt = o.prompt_local if local else PROMPT
                 if local:
                     contexto = contexto_acotado(contexto, o.config.AGENT_CONTEXT_CHARS)
-                if tarea.conversacional and fase == 'resultado':
-                    from modules.conversation import presentar_resultados
-                    presentar_resultados(o,tarea,contexto)
-                    return
-                if tarea.conversacional and fase == 'conversacion':
-                    from modules.conversation import decidir_interlocutor, estado_respuesta
+                if local and tarea.conversacional and directa is None:
+                    from modules.conversation import decidir_interlocutor
                     decision = decidir_interlocutor(o,tarea,contexto,anterior)
-                    if decision['tipo'] in {'respuesta','pregunta'}:
-                        o._finalizar(tarea,decision['texto'],estado=estado_respuesta(tarea,decision))
-                        return
-                    if decision['tipo']=='encargo':
-                        fase='ejecucion'
-                        tarea.entidades.pop('devolucion_ejecutor',None)
-                        continue
                 else:
-                    if tarea.conversacional:
-                        contexto['encargo'] = tarea.encargo
                     decision = directa if directa else o._consultar(tarea,prompt,contexto)
                     if local:
                         decision = decision_local(decision,tarea)
@@ -208,11 +200,6 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                     o._trazar(tarea,'decision',tipo=decision.get('tipo'))
                 tipo = decision.get('tipo')
                 if tipo == 'delegar':
-                    if tarea.conversacional and fase != 'conversacion':
-                        tarea.entidades['devolucion_ejecutor']={'tipo':'solicitud_especialista','rol':decision.get('rol')}
-                        tarea.rol='cotidiano'
-                        fase='conversacion'
-                        continue
                     rol = decision.get('rol')
                     if delegado or o._solo_local(entrada) or rol not in {'analisis','desarrollo','investigacion'}:
                         raise ValueError('No hay otra delegación disponible para este objetivo.')
@@ -220,11 +207,14 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                         from modules.local_permissions import validar_delegacion
                         validar_delegacion(entrada, rol)
                     delegado = True
+                    if tarea.conversacional:
+                        with o._lock:
+                            activo = o._activos[tarea.sesion]
+                            o._activos[tarea.sesion] = (activo[0], inicio + o.config.AGENT_TIMEOUT, tarea)
+                    tarea.rol = rol
                     if rol == 'investigacion':
                         o._investigar(tarea,entrada)
                         return
-                    tarea.rol = rol
-                    fase='ejecucion'
                     continue
                 if tipo == 'plan':
                     plan = decision.get('pasos',[])
@@ -257,6 +247,13 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                             paso['parametros'] = p
                     registros = [{**paso,'estado':'pendiente'} for paso in plan]
                     tarea.plan_resultados.extend(registros)
+                    if local and tarea.conversacional:
+                        from modules.local_permissions import requiere_confirmacion
+                        sensibles = [p for p in plan if p['accion'] in SENSIBLES or requiere_confirmacion(p['accion'],p['parametros'])]
+                        if sensibles:
+                            tarea.cobertura_completa = decision.get('finaliza') is True
+                            o._proponer_lote(tarea,plan,sensibles)
+                            return
                     inicio_lote = len(resultados_turno(tarea))
                     for indice, (paso, registro) in enumerate(zip(plan,registros)):
                         accion = paso['accion']
@@ -284,21 +281,15 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                     nuevos = resultados_turno(tarea)[inicio_lote:]
                     resumenes = [h.get('resultado',{}).get('resumen','') for h in nuevos]
                     completo = len(nuevos) == len(plan) and all(p['estado'] == 'completado' for p in tarea.plan_resultados)
-                    if tarea.conversacional and fase == 'conversacion' and any(h['herramienta'] in ACCIONES for h in nuevos):
-                        # Comunicar el efecto real, sin otra inferencia para confirmarlo.
+                    if local and tarea.conversacional and (decision.get('finaliza') is True or errores):
                         tarea.cobertura_completa = decision.get('finaliza') is True
+                        tarea.entidades['tipo_cierre'] = 'operacion'
                         tarea.pendientes_objetivo = [p['solicitud'] for p in tarea.plan_resultados if p['estado'] != 'completado']
-                        o._finalizar(tarea,resumen_resultados(tarea) or 'No pude comprobar el resultado.',
-                                     estado='terminada' if completo else 'parcial')
+                        texto = resumen_resultados(tarea) or 'No pude comprobar el resultado.'
+                        if len(nuevos) < len(plan):
+                            texto += ' Otros pasos del lote quedaron sin ejecutar.'
+                        o._finalizar(tarea,texto,estado='terminada' if completo and tarea.cobertura_completa else 'parcial')
                         return
-                    if tarea.conversacional and (decision.get('finaliza') is True or errores):
-                        # Las llamadas directas son lotes concretos. Las tareas abiertas
-                        # se encargan al ejecutor; la entrega no vuelve a planificarlas.
-                        tarea.cobertura_completa = decision.get('finaliza') is True
-                        tarea.pendientes_objetivo = [p['solicitud'] for p in tarea.plan_resultados if p['estado'] != 'completado']
-                        fase='resultado'
-                        tarea.rol='cotidiano'
-                        continue
                     if local and not tarea.conversacional and decision.get('finaliza') is True:
                         from modules.operation_intent import requiere_efecto, proyecto_solicitado
                         hechos = resultados_turno(tarea)
@@ -316,11 +307,16 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                         return
                     continue
                 if tipo in {'respuesta','pregunta','limitacion'}:
-                    if tarea.conversacional:
-                        tarea.entidades['devolucion_ejecutor'] = {'tipo':tipo,'texto':str(decision.get('texto',''))[:2000]}
-                        tarea.rol='cotidiano'
-                        fase='resultado'
-                        continue
+                    if local and tarea.conversacional:
+                        from modules.conversation import estado_respuesta
+                        efectos = any(h['herramienta'] in ACCIONES for h in pasos)
+                        texto = decision.get('texto','')
+                        if efectos:
+                            # La prosa libre nunca sustituye el resultado operativo.
+                            texto = resumen_resultados(tarea) + (' '+texto if tipo == 'pregunta' else '')
+                        tarea.cobertura_completa = decision.get('completa') is True
+                        o._finalizar(tarea,texto,estado=estado_respuesta(tarea,decision))
+                        return
                     texto = decision.get('texto','')
                     ids = decision.get('evidencias',[])
                     pendientes = decision.get('pendientes',[])
@@ -362,9 +358,6 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                 o._trazar(tarea,'correccion',motivo='contrato_o_evidencia',intento=errores)
                 if errores > 1:
                     raise
-                if tarea.conversacional:
-                    tarea.rol='cotidiano'
-                    fase='conversacion'
         o._finalizar(tarea,(resumen_resultados(tarea) or 'No he comprobado el resultado solicitado.')+' Quedan pasos pendientes.',estado='parcial')
     finally:
         o.almacen.guardar(tarea)
@@ -377,7 +370,7 @@ def contexto_acotado(contexto, limite):
     from copy import deepcopy
     campos = {'entrada','herramientas','contratos','semantico','coherente','familias_disponibles',
               'dialogo','memorias','resultados','errores','raices','observadas','reproductor_elegido',
-              'solicitud_completa','interlocutor','presentar_resultados','ahora','encargo','devolucion_ejecutor','continuidad'}
+              'solicitud_completa','interlocutor','ahora','continuidad','referencias_aclaracion'}
     c = deepcopy({k:v for k,v in contexto.items() if k in campos})
     c['dialogo'] = [{k:str(v)[:350 if c.get('interlocutor') else 700] for k,v in h.items()} for h in c.get('dialogo',[])[-6:]]
     c['memorias'] = c.get('memorias',[])[:2]
@@ -489,7 +482,7 @@ def contexto_local(contexto):
     """Estado de ESTE turno; la orden actual se envía como último mensaje aparte."""
     c = {'resultados':[{k:v for k,v in h.items() if k in {'herramienta','parametros','resultado','error'}}
                        for h in contexto.get('resultados',[])]}
-    for campo in ('reproductor_elegido','dialogo','raices','observadas','encargo'):
+    for campo in ('reproductor_elegido','dialogo','raices','observadas'):
         if contexto.get(campo):
             c[campo] = contexto[campo]
     if contexto.get('errores'):

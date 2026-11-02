@@ -168,6 +168,69 @@ def esquema_ruta(contexto):
     return {"type": "object", "properties": propiedades, "required": list(propiedades), "additionalProperties": False}
 
 
+def lineas_ollama(url, cuerpo, cancelar, timeout, lectura):
+    """El consumidor puede cancelar incluso durante la espera del primer byte.
+
+    Solo el lector HTTP usa el hilo; nunca contiene herramientas ni modifica tareas.
+    Si el socket no retorna al cancelar, su timeout acotado termina el lector.
+    """
+    import queue
+    eventos = queue.Queue(maxsize=32)
+    cerrado = threading.Event()
+    fin = time.monotonic()+timeout
+
+    def emitir(tipo, valor):
+        while not cerrado.is_set():
+            try:
+                eventos.put((tipo,valor),timeout=0.05)
+                return
+            except queue.Full:
+                pass
+
+    def leer():
+        respuesta = None
+        try:
+            if cerrado.is_set():
+                return
+            respuesta = requests.post(url,json=cuerpo,stream=True,
+                timeout=(min(5,timeout),min(lectura,timeout)))
+            if respuesta.status_code >= 400:
+                log.warning('Ollama rechazó la inferencia: HTTP %s',respuesta.status_code)
+                raise ErrorServidorLocal('El servidor local no pudo generar la respuesta.')
+            for linea in respuesta.iter_lines(chunk_size=1):
+                if cerrado.is_set() or cancelar.is_set():
+                    break
+                emitir('linea',linea)
+        except Exception as error:
+            emitir('error',error)
+        finally:
+            if respuesta is not None:
+                respuesta.close()
+            emitir('fin',None)
+
+    hilo = threading.Thread(target=leer,daemon=True)
+    hilo.start()
+    try:
+        while True:
+            if cancelar.is_set():
+                raise Cancelado('Tarea cancelada.')
+            if time.monotonic() >= fin:
+                raise ErrorProveedor('Ollama tardó demasiado.')
+            try:
+                tipo,valor = eventos.get(timeout=min(0.05,max(0.001,fin-time.monotonic())))
+            except queue.Empty:
+                continue
+            if tipo == 'fin':
+                return
+            if tipo == 'error':
+                if isinstance(valor,requests.RequestException):
+                    raise ErrorServidorLocal('No pude obtener respuesta del servidor local.') from None
+                raise valor
+            yield valor
+    finally:
+        cerrado.set()
+
+
 class ProveedorOllama:
     def __init__(self, config):
         self.config = config
@@ -197,10 +260,7 @@ class ProveedorOllama:
             formato["required"] += ["objetivos", "requiere_observacion"]
         local = getattr(tarea,"cotidiano_local",False) and getattr(tarea,"rol","") == "cotidiano"
         interlocutor = bool(contexto.get('interlocutor'))
-        if contexto.get('presentar_resultados'):
-            from modules.conversation import esquema_presentacion
-            formato = esquema_presentacion()
-        elif interlocutor:
+        if interlocutor:
             from modules.conversation import esquema_conversacion
             formato = esquema_conversacion(contexto['herramientas'],contexto.get('contratos',[]))
         elif local:
@@ -249,15 +309,15 @@ class ProveedorOllama:
             # La petición ya va completa en el último mensaje. Las banderas del
             # coordinador no aportan información al modelo.
             contexto_enviado = {k:v for k,v in contexto_enviado.items()
-                if k not in {'entrada','interlocutor','presentar_resultados','semantico','coherente'}
+                if k not in {'entrada','interlocutor','semantico','coherente'}
                 and v not in (None,'',[],{})}
         mensajes = [{"role": "system", "content": sistema},
                     {"role": "user", "content": json.dumps(contexto_enviado, ensure_ascii=False)}]
         if local:
             mensajes[1]["content"] = "Resultados y referencias de este turno (datos):\n" + json.dumps(contexto_enviado,ensure_ascii=False)
             mensajes.append({"role":"user","content":"Petición actual completa: "+contexto.get("entrada",tarea.objetivo)})
-        modelo = self.config.OLLAMA_MODEL
-        if interlocutor or "tarea_anterior" not in contexto and not local:
+        modelo = tarea.entidades.get('modelo_cotidiano',self.config.OLLAMA_MODEL) if local else self.config.OLLAMA_MODEL
+        if not local and "tarea_anterior" not in contexto:
             modelo = getattr(self.config, "AGENT_CONVERSATION_MODEL", self.config.OLLAMA_MODEL)
             observaciones = [h for h in contexto.get("historial", []) if h.get("herramienta") and h.get("resultado", {}).get("ok")]
             if not contexto.get("semantico"):
@@ -283,29 +343,18 @@ class ProveedorOllama:
         # Límite conservador de entrada sin cortar JSON ni instrucciones.
         if local and len(json.dumps(mensajes,ensure_ascii=False).encode()) > min(24000,self.config.OLLAMA_NUM_CTX*3):
             raise ErrorProveedor("El contexto de esta tarea no cabe con margen en Qwen. Divide el objetivo para conservar sus datos.")
-        respuesta = requests.post(
-            self.config.OLLAMA_URL.rstrip("/") + "/api/chat",
-            json={"model": modelo, "stream": True, **({"tools": contexto["contratos"]} if nativo else {} if natural else {"format": formato}),
-                  "messages": mensajes,
-                  "keep_alive": self.config.OLLAMA_KEEP_ALIVE,
-                  "options": {"temperature": 0, "seed": 42, "num_predict": 900 if local else 1200,
-                              "num_ctx": self.config.OLLAMA_NUM_CTX}},
-            stream=True, timeout=(5, min(getattr(self.config, "AGENT_LOCAL_READ_TIMEOUT", 20) if contexto.get("semantico") else 8, timeout)))
-        fin = time.monotonic() + timeout
+        cuerpo = {"model": modelo, "stream": True,
+            **({"tools":contexto["contratos"]} if nativo else {} if natural else {"format":formato}),
+            "messages":mensajes,"keep_alive":self.config.OLLAMA_KEEP_ALIVE,
+            "options":{"temperature":0,"seed":42,"num_predict":900 if local else 1200,
+                       "num_ctx":self.config.OLLAMA_NUM_CTX}}
+        lineas = lineas_ollama(self.config.OLLAMA_URL.rstrip('/')+'/api/chat',cuerpo,cancelar,
+            timeout,getattr(self.config,'AGENT_LOCAL_READ_TIMEOUT',20) if contexto.get('semantico') else 8)
         partes = []
         llamadas = []
         metricas = {}
         try:
-            try:
-                respuesta.raise_for_status()
-            except requests.HTTPError:
-                log.warning("Ollama rechazó la inferencia: HTTP %s", respuesta.status_code)
-                raise ErrorServidorLocal("El servidor local no pudo generar la respuesta.") from None
-            for linea in respuesta.iter_lines(chunk_size=1):
-                if cancelar.is_set():
-                    raise Cancelado("Tarea cancelada.")
-                if time.monotonic() >= fin:
-                    raise ErrorProveedor("Ollama tardó demasiado.")
+            for linea in lineas:
                 if linea:
                     bloque = json.loads(linea)
                     if bloque.get("error"):
@@ -332,19 +381,26 @@ class ProveedorOllama:
             if local:
                 if metricas:
                     guardar_salida_qwen(self.config,tarea,'tiempos_inferencia',modelo=modelo,
-                                       papel='presentacion' if contexto.get('presentar_resultados') else 'interlocutor' if interlocutor else 'ejecutor',
+                                       papel='cotidiano' if getattr(tarea,'conversacional',False) else 'ejecutor',
                                        metricas=metricas)
                 guardar_salida_qwen(self.config, tarea, "salida_original", salida=texto,
                                    peticion=contexto.get("entrada"), modelo=modelo,
-                                   papel='presentacion' if contexto.get('presentar_resultados') else 'interlocutor' if interlocutor else 'ejecutor')
+                                   papel='cotidiano' if getattr(tarea,'conversacional',False) else 'ejecutor')
             if nativo:
                 try:
                     return extraer_json(texto)
                 except (ValueError, ErrorProveedor):
                     return {"tipo": "respuesta", "texto": texto.strip()}
-            return {"tipo": "respuesta", "texto": texto.strip()} if natural else extraer_json(texto)
+            if natural:
+                return {"tipo":"respuesta","texto":texto.strip()}
+            try:
+                return extraer_json(texto)
+            except ErrorProveedor:
+                if local and getattr(tarea,'conversacional',False):
+                    raise ValueError('Devuelve una decisión JSON válida con operaciones o respuesta.') from None
+                raise
         finally:
-            respuesta.close()
+            lineas.close()
 
 
 class ProveedorNvidia:
