@@ -77,6 +77,6 @@ ExecMainStatus=0. Último arranque: 2026-11-01 21:33:32 CST; «Limits listo» a 
 21:33:38 CST. Banner: asistente cotidiano qwen2.5:3b-instruct (local).
 No se enviaron consultas al modelo para comprobarlo.
 
-Publicación: commit de implementación que contiene este informe, push directo a
-main pendiente de registrar al terminar la publicación.
+Publicación: implementación `fb7adf3`, push SSH a origin/main completado
+(`8b13f0e..fb7adf3`). Este cierre documental se publica después en main.
 Aceptación funcional: **pendiente del uso libre del usuario**.

@@ -1,7 +1,7 @@
 # Task · Mejora 8: asistente cotidiano único
 
 Plan: [diseño detallado](../plan-mejora-8-agente-unico.md).
-Fecha: 2026-11-01. Estado: **implementada; publicación en curso; aceptación funcional pendiente**.
+Fecha: 2026-11-01. Estado: **implementada, activa y publicada; aceptación funcional pendiente**.
 Base: `8b13f0e`. Sustituye el recorrido cotidiano de mejora 7 cuando se implemente;
 no declara la versión anterior aceptada. Activación registrada en el informe.
 
@@ -110,7 +110,7 @@ Salida de fase: revisión técnica trazable; ninguna casilla equivale a prueba f
 - [x] Registrar commit de implementación y respaldo anterior.
 - [x] Activar conjunto completo; servicio encontrado failed por timeout de parada. Arranque y reinicio final registrados en el informe.
 - [x] Verificar estado y mensaje de listo mediante logs filtrados, sin consulta al modelo.
-- [ ] Hacer push directo a main según autorización existente; registrar resultado real.
+- [x] Push SSH directo a main completado: implementación fb7adf3, desde 8b13f0e.
 - [x] Entregar archivos cambiados, límites pendientes y procedimiento de reversión.
 - [x] Confirmar que memoria/bóveda permanecen intactas y no se restauran aprobaciones.
 
