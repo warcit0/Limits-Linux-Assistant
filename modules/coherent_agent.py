@@ -6,6 +6,7 @@ import time
 from modules.agent_providers import ErrorProveedor, ErrorServidorLocal
 from modules.general_agent import resultados_turno
 from modules.task_tools import ACCIONES, LECTURAS, SENSIBLES, extraer_raices
+from modules.capability_tools import AclaracionCapacidad
 
 PROMPT = """Eres Limits. Atiende la petición COMPLETA con las capacidades reales.
 Devuelve un plan de hasta cuatro pasos independientes o una respuesta/pregunta.
@@ -167,12 +168,14 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                 tarea.raices = list(dict.fromkeys(tarea.raices+[str(observada.resolve())]))
                 tarea.observadas.append(str(observada.resolve()))
     intentos_locales = set()
+    decisiones_rechazadas = set()
     errores = 0
     delegado = False
     inicio = time.monotonic()
     try:
         limite_decisiones = getattr(o.config,'AGENT_MAX_DECISIONS',6) if tarea.conversacional else o.config.AGENT_MAX_STEPS
         for _ in range(limite_decisiones):
+            propuesta = None
             try:
                 o._comprobar(tarea)
                 pasos = resultados_turno(tarea)
@@ -199,6 +202,12 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                 if local:
                     o._trazar(tarea,'decision',tipo=decision.get('tipo'))
                 tipo = decision.get('tipo')
+                if local and tipo == 'plan':
+                    from copy import deepcopy
+                    from modules.task_tools import huella
+                    propuesta = deepcopy(decision)
+                    if (huella(propuesta), len(pasos)) in decisiones_rechazadas:
+                        raise ValueError('La decisión repite la propuesta rechazada sin corregir sus datos. No he ejecutado ese lote.')
                 if tipo == 'delegar':
                     rol = decision.get('rol')
                     if delegado or o._solo_local(entrada) or rol not in {'analisis','desarrollo','investigacion'}:
@@ -235,6 +244,14 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                         for paso in plan:
                             accion = paso['accion']
                             p = o.herramientas.normalizar_parametros(accion,paso['parametros'])
+                            if tarea.conversacional:
+                                evento, _ = o._comprobar(tarea)
+                                inicio_preparacion = time.monotonic()
+                                try:
+                                    p = o.herramientas.capacidades.preparar(tarea,accion,p,evento)
+                                finally:
+                                    o._trazar(tarea,'resolver_objeto',accion=accion,
+                                              segundos=round(time.monotonic()-inicio_preparacion,3))
                             if accion == 'media_control' and tarea.entidades.get('reproductor_elegido'):
                                 p.setdefault('player',tarea.entidades['reproductor_elegido'])
                             clave = huella({'accion':accion,'parametros':p,'observacion':revision if accion in LECTURAS else None})
@@ -245,6 +262,7 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                             o._autorizar_operacion(tarea,accion,p)
                             o.herramientas.validar(tarea,accion,p)
                             paso['parametros'] = p
+                        tarea.entidades.pop('decision_rechazada', None)
                     registros = [{**paso,'estado':'pendiente'} for paso in plan]
                     tarea.plan_resultados.extend(registros)
                     if local and tarea.conversacional:
@@ -349,7 +367,17 @@ def ejecutar_ciclo(o, tarea, entrada, anterior):
                     o._finalizar(tarea,texto or 'No pude comprobar el resultado.',estado=estado)
                     return
                 raise ValueError('Formato inválido; elige un plan, respuesta o pregunta concreta.')
+            except AclaracionCapacidad as error:
+                texto = resumen_resultados(tarea, incluir_consultas=False)
+                o._finalizar(tarea, (texto + ' ' if texto else '') + str(error), estado='aclaracion')
+                return
             except ValueError as error:
+                if propuesta is not None:
+                    from modules.task_tools import huella
+                    decisiones_rechazadas.add((huella(propuesta), len(resultados_turno(tarea))))
+                    tarea.entidades['decision_rechazada'] = {
+                        'operaciones': [{'action': p.get('accion'), 'params': p.get('parametros')} for p in propuesta.get('pasos', []) if isinstance(p,dict)],
+                        'motivo': str(error)[:500]}
                 if tarea.cotidiano_local:
                     from modules.agent_providers import guardar_salida_qwen
                     guardar_salida_qwen(o.config,tarea,'decision_rechazada',motivo=str(error))
@@ -370,7 +398,8 @@ def contexto_acotado(contexto, limite):
     from copy import deepcopy
     campos = {'entrada','herramientas','contratos','semantico','coherente','familias_disponibles',
               'dialogo','memorias','resultados','errores','raices','observadas','reproductor_elegido',
-              'solicitud_completa','interlocutor','ahora','continuidad','referencias_aclaracion'}
+              'solicitud_completa','interlocutor','ahora','continuidad','referencias_aclaracion',
+              'decision_rechazada','seleccion_pendiente'}
     c = deepcopy({k:v for k,v in contexto.items() if k in campos})
     c['dialogo'] = [{k:str(v)[:350 if c.get('interlocutor') else 700] for k,v in h.items()} for h in c.get('dialogo',[])[-6:]]
     c['memorias'] = c.get('memorias',[])[:2]
@@ -382,6 +411,8 @@ def contexto_acotado(contexto, limite):
         if isinstance(datos,str) and len(datos)>2200:
             r['datos'] = datos[:2200]
             r['truncado'] = True
+        elif isinstance(datos,str) and datos == r.get('resumen'):
+            r.pop('datos', None)
         elif isinstance(datos,list) and len(datos)>20:
             r['datos'] = datos[:20]
             r['truncado'] = True

@@ -52,6 +52,36 @@ for _c in SPOTIFY_CONTRATOS:
     CATALOGO[_c["name"]] = _c["description"]
     CAMPOS[_c["name"]] = set(_c["inputSchema"]["properties"])
 
+# Contratos cotidianos por objeto. Los contratos por dirección/ruta permanecen
+# disponibles internamente y en el recorrido anterior.
+CAMPOS_COTIDIANOS = {
+    "abrir_aplicacion": {"nombre"},
+    "enfocar_ventana": {"aplicacion"},
+    "cerrar_ventana": {"aplicacion"},
+    "mover_ventana": {"aplicacion", "target"},
+    "abrir_proyecto": {"nombre"},
+}
+OPCIONALES_COTIDIANOS = {nombre: {'origen'} for nombre in ('enfocar_ventana', 'cerrar_ventana', 'mover_ventana')}
+
+
+def campos_selector(nombre, parametros):
+    requeridos = CAMPOS_COTIDIANOS.get(nombre)
+    return requeridos is not None and requeridos <= set(parametros) <= requeridos | OPCIONALES_COTIDIANOS.get(nombre, set())
+
+
+CATALOGO_COTIDIANO = {
+    "consultar_escritorio": "(workspace:str opcional) consulta ventanas, aplicaciones abiertas, foco y especiales; workspace filtra por espacio. No interpreta imágenes. Las operaciones por nombre ya observan su destino internamente.",
+    "abrir_aplicacion": "(nombre:str) abre una aplicación instalada por su nombre; busca y verifica internamente. No abre proyectos ni archivos: usa su capacidad correspondiente. Si el nombre es ambiguo o aproximado, pregunta sin abrir.",
+    "enfocar_ventana": "(aplicacion:str, origen:str opcional) enfoca una ventana existente por aplicación o título exacto. origen filtra por espacio actual de la ventana. Observa y verifica internamente, sin abrir. Si hay varias, pregunta cuál.",
+    "cerrar_ventana": "(aplicacion:str, origen:str opcional) cierra una ventana por aplicación o título exacto. origen filtra por espacio actual. Observa y verifica internamente; pregunta si hay varias. No cierra todos los procesos.",
+    "mover_ventana": "(aplicacion:str, target:str, origen:str opcional) mueve una ventana al espacio target 1–10 (0 equivale a 10). origen filtra por espacio actual. Observa y verifica internamente; pregunta si hay varias. No cambia el escritorio del usuario ni necesita address.",
+    "abrir_proyecto": "(nombre:str) busca un proyecto por nombre en las raíces configuradas y lo abre en Code con verificación. Resuelve la ruta internamente; pregunta si hay varios. No abre el editor vacío.",
+}
+
+
+class AclaracionCapacidad(ValueError):
+    """Falta elegir un objeto real; no requiere otra inferencia ni efectos."""
+
 
 class Capacidades:
     def __init__(self, herramientas):
@@ -59,13 +89,100 @@ class Capacidades:
         self.conocimiento = None
 
     def catalogo(self, tarea):
-        return {
+        catalogo = {
             k: v
             for k, v in CATALOGO.items()
             if (k not in ACCIONES_CAP or tarea.modo == "actuar")
             and (not k.startswith("spotify_") or getattr(getattr(self.tools,"config",None),"SPOTIFY_MCP_ENABLED",False))
             and (self.conocimiento or k not in {"buscar_memoria", "proponer_recuerdo"})
         }
+        if getattr(tarea, "conversacional", False):
+            catalogo.update({k: v for k, v in CATALOGO_COTIDIANO.items() if k in catalogo})
+        return catalogo
+
+    def preparar(self, tarea, nombre, p, cancelar):
+        """Resuelve selectores antes del primer efecto del lote, sin otro modelo."""
+        if not getattr(tarea, "conversacional", False) or nombre not in CAMPOS_COTIDIANOS:
+            return p
+        if cancelar.is_set():
+            from modules.agent_providers import Cancelado
+            raise Cancelado("Tarea cancelada.")
+        selector = "aplicacion" if nombre.endswith("ventana") else "nombre"
+        if selector not in p:
+            return p  # Contrato técnico observado, usado por consumidores anteriores.
+        if not campos_selector(nombre, p) or any(
+            not isinstance(v, str) or not v.strip() or len(v) > 2000 for v in p.values()
+        ):
+            raise ValueError("Usa los campos del contrato: " + ", ".join(sorted(CAMPOS_COTIDIANOS[nombre])))
+        if nombre == "mover_ventana" and not re.fullmatch(r"(?:[0-9]|10)", p["target"]):
+            raise ValueError("target es el número de espacio 1–10; aplicacion identifica la ventana.")
+        ops = self.tools.operaciones
+        if nombre == "abrir_aplicacion":
+            from modules.installed_apps import buscar
+            from modules.grounding import fold
+            from modules.app_router import resolver_aplicacion
+            from commands.system import SystemCommands
+            apps = buscar(p["nombre"])
+            alias = resolver_aplicacion(p['nombre'])
+            exactas = [a for a in apps if fold(p['nombre']) in
+                       {fold(a['nombre']), fold(a['id']), fold(Path(a['id']).stem)}
+                       or alias and SystemCommands.coincide_clase(alias, {'class': a.get('clase', '')})]
+            apps = exactas or apps
+            tarea.entidades.setdefault("aplicaciones", {}).update({a["id"]: a for a in apps})
+            tarea.entidades["consulta_aplicaciones"] = p["nombre"]
+            if len(apps) != 1 or apps[0].get("aproximada"):
+                tarea.entidades['seleccion_pendiente'] = {'aplicaciones': [
+                    {'id': a['id'], 'nombre': a['nombre']} for a in apps[:5]]}
+                opciones = ", ".join(a["nombre"] for a in apps[:5])
+                raise AclaracionCapacidad(
+                    ("Encontré estas aplicaciones: " + opciones + ". ¿Cuál quieres abrir?") if apps
+                    else "No encontré una aplicación instalada con ese nombre. ¿Cómo se llama?")
+            return {"id": apps[0]["id"]}
+        if nombre == "abrir_proyecto":
+            consulta = p["nombre"].strip()
+            # Una elección por ruta se reobserva dentro de las mismas raíces;
+            # no convierte el texto del modelo en una ruta autorizada.
+            ruta_elegida = Path(consulta).expanduser() if "/" in consulta else None
+            proyectos = ops._proyectos(ruta_elegida.name if ruta_elegida else consulta)
+            tarea.entidades["proyectos"] = list(dict.fromkeys(tarea.entidades.get("proyectos", []) + [str(r) for r in proyectos]))
+            tarea.entidades["consulta_proyectos"] = consulta
+            if ruta_elegida:
+                proyectos = [r for r in proyectos if r == ruta_elegida]
+            if len(proyectos) != 1:
+                opciones = [{"nombre": r.name, "ruta": str(r)} for r in proyectos[:8]]
+                tarea.entidades["seleccion_pendiente"] = {"proyectos": opciones}
+                raise AclaracionCapacidad(
+                    "Encontré varios proyectos con ese nombre. ¿En qué carpeta está el que quieres abrir?" if proyectos
+                    else "No encontré ese proyecto en las carpetas configuradas. ¿Cuál es su nombre o carpeta?")
+            return {"ruta": str(proyectos[0])}
+        # La lectura compartida conserva direcciones/clases reales para la
+        # revalidación inmediatamente anterior al efecto.
+        self.ejecutar(tarea, "consultar_escritorio", {}, cancelar)
+        if tarea.entidades.get('ventanas_truncadas'):
+            raise AclaracionCapacidad('No pude observar todas las ventanas dentro del límite disponible; necesito reducir las ventanas abiertas antes de elegir una.')
+        from commands.system import SystemCommands
+        from modules.app_router import resolver_aplicacion
+        from modules.grounding import fold
+        consulta = p["aplicacion"].strip()
+        app = resolver_aplicacion(consulta) or consulta
+        ventanas = tarea.entidades.get("ventanas_detalle", [])
+        if fold(consulta) in {"actual", "activa"}:
+            candidatas = [v for v in ventanas if v.get("address") == tarea.entidades.get("ventana_activa")]
+        else:
+            candidatas = [v for v in ventanas if SystemCommands.coincide_clase(app, v)
+                          or fold(consulta) == fold(v.get("title", ""))]
+        if p.get('origen'):
+            origen = '10' if p['origen'] == '0' else p['origen']
+            candidatas = [v for v in candidatas if origen in
+                          {str((v.get('workspace') or {}).get(k)) for k in ('id', 'name')}]
+        if len(candidatas) != 1:
+            tarea.entidades["seleccion_pendiente"] = {"ventanas": candidatas[:8]}
+            if not candidatas:
+                raise AclaracionCapacidad("No encontré una ventana abierta con ese nombre. ¿Qué aplicación o ventana quieres usar?")
+            opciones = "; ".join(str(v.get("title") or v.get("class"))[:100]
+                                 + " (espacio " + str((v.get("workspace") or {}).get("name", "?")) + ")" for v in candidatas[:4])
+            raise AclaracionCapacidad("Hay varias ventanas: " + opciones + ". ¿Cuál quieres usar?")
+        return {"address": candidatas[0]["address"], **({"target": p["target"]} if nombre == "mover_ventana" else {})}
 
     def validar(self, tarea, nombre, parametros):
         if nombre in LECTURAS_SPOTIFY | ACCIONES_SPOTIFY:
@@ -80,15 +197,22 @@ class Capacidades:
                     raise ValueError("Consulta primero los dispositivos y elige uno observado.")
             return parametros
         campos_validos = (set(parametros).issubset(CAMPOS[nombre]) if nombre == "consultar_escritorio" else set(parametros) == CAMPOS.get(nombre,set()))
+        selector = getattr(tarea, 'conversacional', False) and campos_selector(nombre, parametros)
+        campos_validos = campos_validos or selector
         if nombre not in self.catalogo(tarea) or not campos_validos:
             raise ValueError(
-                "Parámetros incorrectos para la capacidad; consulta su firma."
+                "Parámetros incorrectos para " + nombre + "; campos técnicos: "
+                + ", ".join(sorted(CAMPOS.get(nombre, set())))
             )
         if any(
             not isinstance(v, str) or not v.strip() or len(v) > 2000
             for v in parametros.values()
         ):
             raise ValueError("Indica texto no vacío de hasta 2000 caracteres.")
+        if selector:
+            if nombre == 'mover_ventana' and not re.fullmatch(r'(?:[0-9]|10)', parametros['target']):
+                raise ValueError('target debe ser un espacio numérico de 0 a 10.')
+            return parametros  # La resolución y revalidación preceden al efecto.
         if nombre == "consultar_escritorio" and parametros.get("workspace") and not re.fullmatch(r"(?:[0-9]|10|actual)",parametros["workspace"]):
             raise ValueError("workspace debe ser actual o un destino numérico de 0 a 10; 0 equivale a 10.")
         if nombre == 'consultar_escritorio' and getattr(tarea,'cotidiano_local',False) and not getattr(tarea,'conversacional',False) and parametros.get('workspace'):
@@ -106,7 +230,8 @@ class Capacidades:
             "address"
         ] not in tarea.entidades.get("ventanas", []):
             raise ValueError(
-                "Consulta primero las ventanas y usa una dirección observada."
+                "address debe ser una dirección real obtenida de consultar_escritorio, nunca una llamada. "
+                "En modo conversacional usa aplicacion con el nombre de la ventana y target con el número de espacio."
             )
         if nombre == 'mover_ventana' and not re.fullmatch(r'(?:[0-9]|10)',parametros['target']):
             raise ValueError('El destino debe ser un espacio numérico de 0 a 10.')
@@ -165,6 +290,7 @@ class Capacidades:
         return {"ok":True,"verificado":False,"estado":"sin_verificar","datos":"He enviado la solicitud, pero no pude comprobar el efecto.","resumen":"He enviado la solicitud, pero no pude comprobar el efecto."}
 
     def ejecutar(self, tarea, nombre, p, cancelar):
+        p = self.preparar(tarea, nombre, p, cancelar)
         self.validar(tarea, nombre, p)
         ops = self.tools.operaciones
         if nombre in LECTURAS_SPOTIFY | ACCIONES_SPOTIFY:
@@ -181,7 +307,8 @@ class Capacidades:
             from modules.installed_apps import buscar
             apps = buscar(p["consulta"])
             tarea.entidades["consulta_aplicaciones"] = p["consulta"]
-            tarea.entidades["aplicaciones"] = {a["id"]:a for a in apps}
+            observadas = tarea.entidades.get('aplicaciones', {}) if getattr(tarea, 'conversacional', False) else {}
+            tarea.entidades["aplicaciones"] = {**observadas, **{a["id"]:a for a in apps}}
             datos = [{k:a[k] for k in ("id","nombre","descripcion")} | {'aproximada':a.get('aproximada',False)} for a in apps]
         elif nombre == "abrir_aplicacion":
             from modules.installed_apps import abrir
@@ -203,7 +330,9 @@ class Capacidades:
             tarea.entidades["ventana_activa"] = datos["ventana"].get("address")
             tarea.entidades["especiales"] = [e["name"].removeprefix("special:") for e in datos["especiales"]]
             from modules.memory import redact
-            ventanas = [{k:redact(str(c.get(k,""))) if k == "title" else c.get(k) for k in ("address","class","title","workspace")} for c in ops._leer("clients") if c.get("mapped",True)][:100]
+            clientes = [c for c in ops._leer('clients') if c.get('mapped', True)]
+            tarea.entidades['ventanas_truncadas'] = len(clientes) > 100
+            ventanas = [{k:redact(str(c.get(k,""))) if k == "title" else c.get(k) for k in ("address","class","title","workspace")} for c in clientes[:100]]
             tarea.entidades["ventanas"] = [c["address"] for c in ventanas]
             tarea.entidades["ventanas_detalle"] = [{k:c[k] for k in ("address","class","title","workspace")} for c in ventanas]
             objetivo = p.get("workspace")
@@ -254,6 +383,9 @@ class Capacidades:
                 raise ValueError(
                     "La ventana ya no existe; vuelve a consultar las ventanas."
                 )
+            anterior = next((v for v in tarea.entidades.get('ventanas_detalle', []) if v.get('address') == p['address']), None)
+            if not anterior or anterior.get('class') != c.get('class'):
+                raise ValueError('La ventana observada cambió; consulta el escritorio de nuevo.')
             ops._enfocar_cliente(c, cancelar)
             return {
                 "ok": True,
@@ -263,7 +395,8 @@ class Capacidades:
         elif nombre == "buscar_proyectos":
             tarea.entidades["consulta_proyectos"] = p["nombre"]
             datos = [str(r) for r in ops._proyectos(p["nombre"])]
-            tarea.entidades["proyectos"] = datos
+            observados = tarea.entidades.get('proyectos', []) if getattr(tarea, 'conversacional', False) else []
+            tarea.entidades["proyectos"] = list(dict.fromkeys(observados + datos))
             if not datos:
                 return {'ok':True,'verificado':True,'datos':[], 'resumen':'No encontré ese proyecto en las carpetas de proyectos autorizadas.','estado':'completado'}
         elif nombre == "abrir_proyecto":
@@ -273,7 +406,7 @@ class Capacidades:
                 raise ValueError("El proyecto cambió; vuelve a consultar.")
             paso = {
                 "accion": "operacion_abrir_proyecto",
-                "parametros": {"nombre": ruta.name, "editor": "code"},
+                "parametros": {"nombre": ruta.name, "ruta": str(ruta), "editor": "code"},
             }
             return ops.ejecutar(
                 SimpleNamespace(plan_operativo=[paso]),

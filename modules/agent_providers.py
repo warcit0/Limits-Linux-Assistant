@@ -311,10 +311,14 @@ class ProveedorOllama:
             contexto_enviado = {k:v for k,v in contexto_enviado.items()
                 if k not in {'entrada','interlocutor','semantico','coherente'}
                 and v not in (None,'',[],{})}
+            if interlocutor:
+                familias = contexto_enviado.pop('familias_disponibles', [])
+                if familias:
+                    sistema += '\nFamilias para consultar_capacidades: ' + ', '.join(familias) + '.'
         mensajes = [{"role": "system", "content": sistema},
                     {"role": "user", "content": json.dumps(contexto_enviado, ensure_ascii=False)}]
         if local:
-            mensajes[1]["content"] = "Resultados y referencias de este turno (datos):\n" + json.dumps(contexto_enviado,ensure_ascii=False)
+            mensajes[1]["content"] = "Resultados y referencias de este turno (datos):\n" + json.dumps(contexto_enviado,ensure_ascii=False,separators=(',',':'))
             mensajes.append({"role":"user","content":"Petición actual completa: "+contexto.get("entrada",tarea.objetivo)})
         modelo = tarea.entidades.get('modelo_cotidiano',self.config.OLLAMA_MODEL) if local else self.config.OLLAMA_MODEL
         if not local and "tarea_anterior" not in contexto:

@@ -23,6 +23,11 @@ def contexto_conversacion(tarea, contexto, anterior):
              dialogo=tarea.dialogo[-6:], memorias=tarea.memorias[:2],
              referencias_aclaracion=tarea.entidades.get('referencias_aclaracion',[]),
              familias_disponibles=contexto.get('familias_disponibles',[]))
+    if tarea.entidades.get('decision_rechazada'):
+        c['decision_rechazada'] = deepcopy(tarea.entidades['decision_rechazada'])
+        c.pop('errores', None)  # El motivo concreto ya acompaña a la operación.
+    if anterior and anterior.estado == 'aclaracion' and anterior.entidades.get('seleccion_pendiente'):
+        c['seleccion_pendiente'] = deepcopy(anterior.entidades['seleccion_pendiente'])
     # El historial sirve para resolver referencias. No reinyectar el objetivo,
     # los recibos ni la pregunta anterior como trabajo activo de esta petición.
     return c

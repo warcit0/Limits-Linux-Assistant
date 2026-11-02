@@ -195,3 +195,83 @@ class TestInterlocutor(unittest.TestCase):
             autorizar_capacidad(t,'remember',{'text':'inferencia','key':''})
         t.historial=[{'herramienta':'set_volume','resultado':{'ok':True,'verificado':False}}]
         self.assertEqual(estado_respuesta(t,{'tipo':'respuesta','completa':True}),'parcial')
+
+    def test_mover_por_nombre_resuelve_sin_inferencia_preparatoria(self):
+        o=self.crear([lote('mover_ventana',{'aplicacion':'firefox','target':'2'})])
+        ventana={'address':'0x1234567','class':'firefox','title':'Navegador',
+                 'workspace':{'id':3,'name':'3'}}
+        datos={'clients':[ventana],'activewindow':ventana,'activeworkspace':{'id':3},'monitors':[]}
+        recibo={'ok':True,'verificado':True,'resumen':'Ventana movida y comprobada.'}
+        with patch.object(o.operaciones,'_leer',side_effect=lambda clave:datos[clave]), \
+             patch('modules.app_router.resolver_aplicacion',return_value='firefox'), \
+             patch.object(o.herramientas.capacidades,'_mutar_escritorio',return_value=recibo) as mutar:
+            r=o.atender('Pon el navegador en mi segundo escritorio')
+        self.assertIn('comprobada',r)
+        self.assertEqual(len(self.interlocutor.consultas),1)
+        self.assertEqual(mutar.call_args.args[2],{'address':'0x1234567','target':'2'})
+        self.assertNotIn('Aplicaciones con ventanas',str(r))
+
+    def test_ambiguedad_en_segundo_paso_impide_todos_los_efectos(self):
+        d={'intent':'command','operations':[{'action':'set_volume','params':{'level':20}},
+            {'action':'mover_ventana','params':{'aplicacion':'firefox','target':'2'}}],
+            'complete':True,'response':''}
+        o=self.crear([d])
+        ventanas=[{'address':f'0x123456{i}','class':'firefox','title':f'Ventana {i}',
+                   'workspace':{'id':3,'name':'3'}} for i in (1,2)]
+        datos={'clients':ventanas,'activewindow':ventanas[0],'activeworkspace':{'id':3},'monitors':[]}
+        with patch.object(o.operaciones,'_leer',side_effect=lambda clave:datos[clave]), \
+             patch('modules.app_router.resolver_aplicacion',return_value='firefox'):
+            r=o.atender('Baja el volumen y mueve Firefox al segundo espacio')
+        self.assertEqual(self.cambios,[])
+        self.assertIn('Cuál',str(r))
+        self.assertEqual(o.almacen.cargar('local').estado,'aclaracion')
+        self.assertEqual(len(self.interlocutor.consultas),1)
+
+    def test_proyecto_por_nombre_conserva_la_ruta_resuelta(self):
+        from pathlib import Path
+        carpeta=Path(self.tmp.name)/'GestorCotizaciones'
+        carpeta.mkdir()
+        o=self.crear([lote('abrir_proyecto',{'nombre':'gestor de cotizaciones'})])
+        recibo={'ok':True,'verificado':True,'datos':'Proyecto abierto y comprobado.'}
+        with patch.object(o.operaciones,'_proyectos',return_value=[carpeta]), \
+             patch.object(o.operaciones,'ejecutar',return_value=recibo) as abrir:
+            r=o.atender('Quiero trabajar en el gestor de cotizaciones con Code')
+        self.assertIn('Proyecto abierto',str(r))
+        self.assertEqual(abrir.call_args.args[2]['ruta'],str(carpeta))
+        self.assertEqual(len(self.interlocutor.consultas),1)
+
+    def test_rechazo_muestra_la_propuesta_al_corregir(self):
+        incorrecta=lote('mover_ventana',{'address':'workspace_switch(2)','target':'firefox'})
+        o=self.crear([incorrecta,incorrecta])
+        o.atender('Mueve Firefox al segundo escritorio')
+        c=self.interlocutor.consultas[-1][1]
+        self.assertEqual(c['decision_rechazada']['operaciones'],incorrecta['operations'])
+        self.assertIn('address',c['decision_rechazada']['motivo'])
+        self.assertEqual(self.cambios,[])
+        self.assertEqual(len(self.interlocutor.consultas),2)
+
+    def test_preparar_dos_aplicaciones_conserva_ambas_observaciones(self):
+        import threading
+        o=self.crear([])
+        t=Tarea('s','Abre dos aplicaciones',modo='actuar',semantica=True,
+                coherente=True,cotidiano_local=True,conversacional=True)
+        apps=[{'id':'uno.desktop','nombre':'Uno'},{'id':'dos.desktop','nombre':'Dos'}]
+        with patch('modules.installed_apps.buscar',side_effect=[[apps[0]],[apps[1]]]), \
+             patch('modules.app_router.resolver_aplicacion',return_value=None):
+            for app in apps:
+                o.herramientas.capacidades.preparar(t,'abrir_aplicacion',{'nombre':app['nombre']},threading.Event())
+        self.assertEqual(set(t.entidades['aplicaciones']),{'uno.desktop','dos.desktop'})
+
+    def test_origen_desambigua_sin_elegir_la_primera_ventana(self):
+        import threading
+        o=self.crear([])
+        t=Tarea('s','Mueve la del espacio tres al dos',modo='actuar',semantica=True,
+                coherente=True,cotidiano_local=True,conversacional=True)
+        ventanas=[{'address':f'0x123456{i}','class':'firefox','title':'Navegador',
+                   'workspace':{'id':i,'name':str(i)}} for i in (3,4)]
+        datos={'clients':ventanas,'activewindow':ventanas[0],'activeworkspace':{'id':3},'monitors':[]}
+        with patch.object(o.operaciones,'_leer',side_effect=lambda clave:datos[clave]), \
+             patch('modules.app_router.resolver_aplicacion',return_value='firefox'):
+            p=o.herramientas.capacidades.preparar(t,'mover_ventana',
+                {'aplicacion':'firefox','origen':'3','target':'2'},threading.Event())
+        self.assertEqual(p,{'address':'0x1234563','target':'2'})

@@ -933,6 +933,8 @@ class Orquestador:
         evento, _ = self._comprobar(tarea)
         try:
             parametros = self.herramientas.normalizar_parametros(accion,parametros)
+            if getattr(tarea, 'conversacional', False):
+                parametros = self.herramientas.capacidades.preparar(tarea,accion,parametros,evento)
             if tarea.semantica and not aprobado:
                 self._autorizar_operacion(tarea,accion,parametros)
             parametros_originales = parametros

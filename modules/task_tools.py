@@ -126,6 +126,9 @@ class HerramientasTarea:
                     comunes.update({'buscar_memoria','memory_recall','memory_list','memory_stats','remember','forget'})
                     # Un solo contrato de foco: dirección observada, sin lanzar apps.
                     comunes.discard('focus_window')
+                    # Un único contrato para abrir aplicaciones por nombre.
+                    # Los atajos completos conservan open_application más abajo.
+                    comunes.discard('open_application')
                 from commands.apps import AppCommands
                 if not AppCommands.disponibles():
                     comunes -= {'open_application','close_application','focus_window'}
@@ -157,7 +160,7 @@ class HerramientasTarea:
 
     def contratos(self, tarea):
         """Deriva esquemas del catálogo real para llamadas nativas de herramientas."""
-        from modules.capability_tools import CAMPOS
+        from modules.capability_tools import CAMPOS, CAMPOS_COTIDIANOS, OPCIONALES_COTIDIANOS
         from modules.grounding import PARAM_ENUMS
         contratos = []
         internos = {"listar_carpeta": {"ruta"}, "leer_archivo": {"ruta", "inicio"},
@@ -170,6 +173,14 @@ class HerramientasTarea:
             spotify = next((c for c in SPOTIFY_CONTRATOS if c["name"] == nombre),None)
             if spotify:
                 contratos.append({"type":"function","function":{"name":nombre,"description":descripcion,"parameters":spotify["inputSchema"]}})
+                continue
+            if getattr(tarea, 'conversacional', False) and nombre in CAMPOS_COTIDIANOS:
+                propiedades = {k: {"type": "string", "minLength": 1} for k in sorted(CAMPOS_COTIDIANOS[nombre] | OPCIONALES_COTIDIANOS.get(nombre, set()))}
+                if nombre == 'mover_ventana':
+                    propiedades['target']['enum'] = [str(i) for i in range(11)]
+                contratos.append({"type": "function", "function": {"name": nombre, "description": descripcion,
+                    "parameters": {"type": "object", "properties": propiedades,
+                                   "required": sorted(CAMPOS_COTIDIANOS[nombre]), "additionalProperties": False}}})
                 continue
             if handler:
                 for campo, p in inspect.signature(handler).parameters.items():
@@ -187,7 +198,7 @@ class HerramientasTarea:
                     if p.default is inspect.Parameter.empty or (nombre in ACCIONES and campo in {"action","level","query","target","app"}):
                         requeridos.append(campo)
             else:
-                for campo in CAMPOS.get(nombre, internos.get(nombre, set())):
+                for campo in sorted(CAMPOS.get(nombre, internos.get(nombre, set()))):
                     propiedades[campo] = {"type": "integer", "minimum": 0} if campo == "inicio" else {"type": "string", "minLength": 1}
                     if campo != "inicio" and not (nombre == "consultar_escritorio" and campo == "workspace"): requeridos.append(campo)
             contratos.append({"type": "function", "function": {"name": nombre, "description": descripcion,

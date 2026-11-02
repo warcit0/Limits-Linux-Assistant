@@ -6,6 +6,11 @@ cambios rompientes en cualquier release.
 
 ## [Unreleased]
 
+- Capacidades cotidianas por objeto: resolver aplicaciones, ventanas y proyectos
+  antes de efectos, aclarar ambigüedad sin otra inferencia y conservar ruta exacta.
+  Recuperación con propuesta/motivo, contexto compacto y preparaciones internas
+  fuera de voz. Revisión estática; regresiones preparadas sin ejecutar.
+
 - Mejora 8: un único Qwen cotidiano conversa y utiliza herramientas, sin encargos a
   otro modelo ni narrador de cierre. Atajos completos restaurados, continuación tras
   observaciones/efectos y cierre por recibos. Límites de decisiones/plazo, cancelación

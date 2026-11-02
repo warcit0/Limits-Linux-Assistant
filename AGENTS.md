@@ -614,3 +614,22 @@ docs/tasks/mejora-8-agente-unico.md.
 - Gateway usa su propio SpeechController sin STT; el teléfono sigue sin wake word
   y conserva stop/cancelación de su sesión. Nunca escuchar el PC por audio remoto.
 - Escucha heredada descarta transcripciones tardías y eco antes de cancelar.
+
+### Capacidades por objeto y recuperación (2026-11-01)
+- En conversacional, abrir_aplicacion recibe nombre; abrir_proyecto recibe nombre
+  y resuelve ruta. Enfocar/cerrar/mover_ventana reciben aplicacion y origen opcional;
+  mover añade target. Preparar resuelve y valida TODO el lote antes de efectos.
+- Mantener selección única, catálogo con huella, rutas en PROJECT_ROOTS y
+  revalidación inmediata. No sustituir ambigüedad por primera coincidencia. La
+  ruta de proyecto seleccionada se conserva al volver a buscar antes de abrir.
+- AclaracionCapacidad entrega la elección sin otra inferencia. seleccion_pendiente
+  es referencia informativa del turno anterior; reobservar al continuar.
+- Contratos técnicos address/ruta/id siguen para consumidores anteriores. Atajos
+  completos conservan open_application; Qwen conversacional ve abrir_aplicacion.
+- decision_rechazada muestra operaciones y motivo; no repetir sin nuevos datos.
+  Limpiar el error tras validar otro lote. Recibos siguen evitando repetir efectos.
+- Preparaciones internas no se leen como resultados solicitados. Contexto sin
+  duplicación de datos/resumen y familias en prefijo estable. No cambiar modelo
+  ni ampliar plazo. No anunciar ahorro de latencia hasta observar uso real.
+- Evidencia/límites: docs/validaciones/capacidades-cotidianas-por-objeto.md. Seis
+  regresiones preparadas, NO ejecutadas; solo sintaxis, revisión y arranque.

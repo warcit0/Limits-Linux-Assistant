@@ -293,6 +293,7 @@ class Operaciones:
                         continue
                     if (
                         clave(p.name) == clave(nombre)
+                        and p.resolve().is_relative_to(base.resolve())
                         and str(p.resolve()) not in vistos
                     ):
                         vistos.add(str(p.resolve()))
@@ -315,6 +316,8 @@ class Operaciones:
                     aclaracion=True,
                 )
             proyectos = self._proyectos(nombre)
+            if parametros.get("ruta"):
+                proyectos = [r for r in proyectos if str(r) == parametros["ruta"]]
             if len(proyectos) != 1:
                 mensaje = (
                     f"No encontré una carpeta de proyecto llamada {nombre} en las raíces configuradas."
